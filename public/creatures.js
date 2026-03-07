@@ -47,11 +47,12 @@ class Bird {
   constructor(startX, startY, targetNode) {
     this.x          = startX;
     this.y          = startY;
-    this.size       = random(8, 15);
+    this.size       = random(13, 24);
     this.flapPhase  = random(TWO_PI);
     this.flapRate   = 0;
     this.shouldRemove = false;
     this.vel        = { x: 1, y: 0 };
+    this.layer      = random() < 0.58 ? 'back' : 'front';
 
     // Head bob state
     this.headBobTimer = floor(random(80, 250));
@@ -200,60 +201,56 @@ class Bird {
   _drawPerched(alpha) {
     push();
     translate(this.x, this.y);
+    const bobY = this.headBobPhase > 0 ? sin(this.headBobPhase * 2.4) * 2.2 : 0;
+    const s = this.size;
 
-    // Head bob: a single nod triggered by headBobPhase counter
-    const bobY = this.headBobPhase > 0
-      ? sin(this.headBobPhase * 2.5) * 3.5
-      : 0;
-
-    fill(8, 8, 8, alpha);
+    // Underside silhouette while perched: compact body with folded wings.
     noStroke();
+    fill(8, 8, 8, alpha);
+    ellipse(0, -s * 0.38 + bobY, s * 0.95, s * 0.56); // torso
+    ellipse(-s * 0.28, -s * 0.35 + bobY, s * 0.52, s * 0.32); // folded wing L
+    ellipse( s * 0.28, -s * 0.35 + bobY, s * 0.52, s * 0.32); // folded wing R
+    triangle(0, -s * 0.10 + bobY, -s * 0.20, s * 0.22, s * 0.20, s * 0.22); // tail fan
 
-    // Body — plump oval sitting above the branch
-    ellipse(0, -this.size * 0.38, this.size * 0.88, this.size * 0.58);
-
-    // Head (with bob)
-    circle(-this.size * 0.20, -this.size * 0.82 + bobY, this.size * 0.50);
-
-    // Tail feathers — triangle pointing back
-    triangle(
-       this.size * 0.26, -this.size * 0.25,
-       this.size * 0.54, -this.size * 0.06,
-       this.size * 0.54, -this.size * 0.44,
-    );
-
-    // Feet — two thin legs + toe stubs
+    // Feet gripping branch beneath.
     stroke(8, 8, 8, alpha);
-    strokeWeight(1.1);
-    noFill();
-    const ly = -this.size * 0.06; // leg top
-    const lh =  this.size * 0.28; // leg length
-    for (const lx of [-this.size * 0.10, this.size * 0.12]) {
-      line(lx, ly, lx, ly + lh);
-      // two toes per foot
-      line(lx, ly + lh, lx - this.size * 0.18, ly + lh);
-      line(lx, ly + lh, lx + this.size * 0.14, ly + lh + 3);
-    }
+    strokeWeight(1.0);
+    line(-s * 0.12, s * 0.02, -s * 0.12, s * 0.20);
+    line( s * 0.12, s * 0.02,  s * 0.12, s * 0.20);
+    line(-s * 0.12, s * 0.20, -s * 0.26, s * 0.20);
+    line( s * 0.12, s * 0.20,  s * 0.26, s * 0.20);
 
     pop();
   }
 
   _drawFlying(alpha) {
     const angle  = atan2(this.vel.y, this.vel.x);
-    const flap   = sin(this.flapPhase) * this.size * 0.46;
+    const s      = this.size;
+    const flap   = sin(this.flapPhase) * s * 0.42;
+    const wingSpan = s * 1.45;
+    const wingLift = s * 0.22 + flap;
 
     push();
     translate(this.x, this.y);
     rotate(angle);
-    stroke(8, 8, 8, alpha);
-    strokeWeight(1.6);
-    noFill();
+    fill(8, 8, 8, alpha);
+    noStroke();
 
+    // Underside flight silhouette with broad symmetric wings.
     beginShape();
-    vertex(-this.size,        flap * 0.70);
-    quadraticVertex(-this.size * 0.52, -flap * 0.44, 0, 0);
-    quadraticVertex( this.size * 0.52, -flap * 0.44, this.size, flap * 0.70);
-    endShape();
+    vertex(-wingSpan, 0);
+    quadraticVertex(-s * 0.78, -wingLift, -s * 0.30, -s * 0.08);
+    quadraticVertex(-s * 0.10, s * 0.06, 0, 0);
+    quadraticVertex( s * 0.10, s * 0.06, s * 0.30, -s * 0.08);
+    quadraticVertex( s * 0.78, -wingLift, wingSpan, 0);
+    quadraticVertex( s * 0.52,  s * 0.34, 0, s * 0.22);
+    quadraticVertex(-s * 0.52,  s * 0.34, -wingSpan, 0);
+    endShape(CLOSE);
+
+    // Body ridge + tail notch.
+    fill(14, 14, 14, alpha);
+    ellipse(0, 0, s * 0.44, s * 0.70);
+    triangle(0, s * 0.14, -s * 0.16, s * 0.42, s * 0.16, s * 0.42);
 
     pop();
   }
@@ -391,8 +388,25 @@ class CreatureFlock {
   }
 
   // ----------------------------------------------------------
-  draw() {
-    for (const b of this.birds) b.draw();
-    for (const b of this.bats)  b.draw();
+  getOccluders() {
+    const occ = [];
+    for (const b of this.birds) {
+      if (b.state === 'LEAVING') continue;
+      occ.push({ x: b.x, y: b.y, r: b.size * (b.state === 'PERCHED' ? 1.35 : 1.1) });
+    }
+    return occ;
+  }
+
+  drawBackLayer() {
+    for (const b of this.birds) {
+      if (b.layer === 'back') b.draw();
+    }
+  }
+
+  drawFrontLayer() {
+    for (const b of this.birds) {
+      if (b.layer !== 'back') b.draw();
+    }
+    for (const b of this.bats) b.draw();
   }
 }

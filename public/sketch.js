@@ -6,6 +6,7 @@
 // Socket.io client
 // ----------------------------------------------------------
 const socket = io();
+window._ncvSocket = socket;
 
 socket.on('connect', () => {
   console.log('[socket] Connected →', socket.id);
@@ -19,20 +20,62 @@ socket.on('env:sync', (state) => {
   env.apply(state);
   window._ncvSyncPanel && _ncvSyncPanel();
 });
+socket.on('remote:command', (payload = {}) => {
+  switch (payload.command) {
+    case 'trigger_storm':
+      env.currentWeather = 'storm';
+      break;
+    case 'clear_weather':
+      env.currentWeather = 'clear';
+      break;
+    case 'day_mode':
+      env.timeOfDay = 12;
+      break;
+    case 'night_mode':
+      env.timeOfDay = 23;
+      break;
+    default:
+      return;
+  }
+  window._ncvSyncPanel && _ncvSyncPanel();
+});
 
 
 // ----------------------------------------------------------
 // EnvironmentManager
 // ----------------------------------------------------------
 const EnvironmentManager = {
-  timeOfDay:      12,
-  windSpeed:      0.10,
+  timeOfDay:      21.2,
+  windSpeed:      0.22,
   currentWeather: 'clear',
+  starBrightness: 1.1,  // 0–2: global night-star intensity
+  constellationBrightness: 1.0, // 0–2: constellation line/label intensity
+  cloudCover: 0.28, // 0–1
+  skyBlur: 1.0, // 0–6 px blur for moon halo/cloud softness
+  leafSoftness: 0.45, // 0–4 soft edge for leaves
+  simulationMode: 'live',
+  liveLocationName: 'New Haven, CT',
+  performanceMode: 'auto',
+  soundMaster: 0.5, // 0–1
+  soundCrickets: 0.35,
+  soundThunder: 0.9,
+  soundBirds: 0.35,
+  soundRain: 0.55,
+  soundWind: 0.45,
+  soundNightBirds: 0.25,
 
   // Tree configuration — changes take effect after canopy.rebuild()
-  canopyCoverage: 0.7,   // 0–1: 0=no trees, 1=full canopy cover
-  canopyDensity:  0.6,   // 0–1: 0=bare branches, 1=overwhelming leaves
-  branchSpread:   0.5,   // 0–1: 0=tight/columnar, 1=wide/spreading
+  treeSkyOpen: 0.72,     // 0–1: open sky in center
+  treeFrameDensity: 0.64, // 0–1: amount of canopy around perimeter
+  treeFoliageMass: 0.52,  // 0–1: amount of foliage per branch network
+  treeBranchReach: 0.46,  // 0–1: how far branches reach inward
+  treeBranchChaos: 0.52,  // 0–1: straight vs irregular branching
+  canopyCoverage: 0.45,  // 0–1: reach from edges toward center
+  canopyTreeCount: 0.38, // 0–1: sparse tree count → dense forest count
+  canopyDensity:  0.42,   // 0–1: 0=bare branches, 1=overwhelming leaves
+  canopyPerspective: 0.72, // 0–1: flat silhouette → strong look-up depth cue
+  canopyEdgeLushness: 0.75, // 0–1: neutral foliage → lush green edge frame
+  branchSpread:   0.62,   // 0–1: 0=tight/columnar, 1=wide/spreading
   branchDepth:    4,     // 3–5: recursion levels
 
   WEATHER_STATES: ['clear', 'rain', 'storm'],
@@ -55,8 +98,31 @@ const EnvironmentManager = {
       timeOfDay:      this.timeOfDay,
       windSpeed:      this.windSpeed,
       currentWeather: this.currentWeather,
+      starBrightness: this.starBrightness,
+      constellationBrightness: this.constellationBrightness,
+      cloudCover: this.cloudCover,
+      skyBlur: this.skyBlur,
+      leafSoftness: this.leafSoftness,
+      simulationMode: this.simulationMode,
+      liveLocationName: this.liveLocationName,
+      performanceMode: this.performanceMode,
+      soundMaster: this.soundMaster,
+      soundCrickets: this.soundCrickets,
+      soundThunder: this.soundThunder,
+      soundBirds: this.soundBirds,
+      soundRain: this.soundRain,
+      soundWind: this.soundWind,
+      soundNightBirds: this.soundNightBirds,
+      treeSkyOpen: this.treeSkyOpen,
+      treeFrameDensity: this.treeFrameDensity,
+      treeFoliageMass: this.treeFoliageMass,
+      treeBranchReach: this.treeBranchReach,
+      treeBranchChaos: this.treeBranchChaos,
       canopyCoverage: this.canopyCoverage,
+      canopyTreeCount: this.canopyTreeCount,
       canopyDensity:  this.canopyDensity,
+      canopyPerspective: this.canopyPerspective,
+      canopyEdgeLushness: this.canopyEdgeLushness,
       branchSpread:   this.branchSpread,
       branchDepth:    this.branchDepth,
     };
@@ -69,8 +135,12 @@ const env = EnvironmentManager;
 // ----------------------------------------------------------
 // Globals — subsystems
 // ----------------------------------------------------------
-let starField, canopy, flock;
+let starField, canopy, flock, atmosphere;
 let showDebug = true;
+const perfState = {
+  smoothFps: 60,
+  qualityScale: 1,
+};
 
 // Callbacks for controls.js
 window._ncvRandomise    = () => { env.randomise(); window._ncvSyncPanel && _ncvSyncPanel(); };
@@ -78,6 +148,8 @@ window._ncvDebugVisible = true;
 window._ncvToggleDebug  = () => { showDebug = !showDebug; window._ncvDebugVisible = showDebug; };
 // Called by controls.js when branch config changes require a canopy rebuild
 window._ncvRebuildCanopy = () => { canopy && canopy.rebuild(); };
+window._ncvInvalidateSkyCache = () => { starField && starField.invalidateCache(); };
+window._ncvEnableAudio = () => { atmosphere && atmosphere.enableAudio(); };
 
 
 // ----------------------------------------------------------
@@ -89,6 +161,8 @@ function setup() {
   textFont('monospace');
 
   starField = new StarField();
+  atmosphere = new AtmosphereSystem();
+  window.atmosphere = atmosphere;
   canopy    = new Canopy();
   flock     = new CreatureFlock();
 }
@@ -100,16 +174,34 @@ function setup() {
 //   → then all rendering in visual layer order
 // ----------------------------------------------------------
 function draw() {
+  const fpsNow = frameRate();
+  perfState.smoothFps = lerp(perfState.smoothFps, Number.isFinite(fpsNow) ? fpsNow : 60, 0.08);
+  if (env.performanceMode === 'auto') {
+    if (perfState.smoothFps < 24) perfState.qualityScale = max(0.52, perfState.qualityScale - 0.05);
+    else if (perfState.smoothFps > 45) perfState.qualityScale = min(1.0, perfState.qualityScale + 0.02);
+  } else {
+    perfState.qualityScale = 1;
+  }
+  window._ncvQualityScale = perfState.qualityScale;
+
   background(skyColor());
+  starField.updateCache();
+  if (starField.isNight()) {
+    image(starField.getNightBuffer(), 0, 0, width, height);
+  }
+  atmosphere.update();
+  atmosphere.drawSky();
 
   // --- Update phase ---
   canopy.update();   // must precede flock.update() — provides perchNodes
   flock.update();
+  window._ncvBirdOccluders = flock.getOccluders();
 
   // --- Render phase (back → front) ---
-  starField.draw();  // sky layer
-  canopy.draw();     // branches + leaves
-  flock.draw();      // birds + bats on top
+  flock.drawBackLayer(); // birds partially behind foliage
+  canopy.draw();         // branches + leaves
+  flock.drawFrontLayer();// birds/bats in front
+  atmosphere.drawOverlay();
 
   if (showDebug) drawDebugHUD();
 }
@@ -120,6 +212,8 @@ function draw() {
 // ----------------------------------------------------------
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
+  starField.resize();
+  atmosphere.resize();
   canopy.resize();
 }
 
@@ -177,21 +271,32 @@ function skyColor() {
 // ----------------------------------------------------------
 function drawDebugHUD() {
   const PAD = 20, LINE = 22;
-  fill(0, 0, 0, 145); noStroke();
-  rect(PAD - 8, PAD - 8, 330, LINE * 8 + 18, 7);
-  textSize(12);
-
   const rows = [
     ['EnvironmentManager', '',                           true ],
     ['timeOfDay',          _fmtTime(env.timeOfDay)           ],
     ['windSpeed',          env.windSpeed.toFixed(3)           ],
     ['currentWeather',     env.currentWeather                 ],
-    ['canopyDensity',      env.canopyDensity.toFixed(2)       ],
-    ['branchSpread',       env.branchSpread.toFixed(2)        ],
+    ['starBrightness',     env.starBrightness.toFixed(2)      ],
+    ['constellations',     env.constellationBrightness.toFixed(2) ],
+    ['cloudCover',         env.cloudCover.toFixed(2)          ],
+    ['skyBlur',           env.skyBlur.toFixed(2)             ],
+    ['leafSoftness',      env.leafSoftness.toFixed(2)        ],
+    ['skyOpen',            env.treeSkyOpen.toFixed(2)         ],
+    ['frameDensity',       env.treeFrameDensity.toFixed(2)    ],
+    ['foliageMass',        env.treeFoliageMass.toFixed(2)     ],
+    ['branchReach',        env.treeBranchReach.toFixed(2)     ],
+    ['branchChaos',        env.treeBranchChaos.toFixed(2)     ],
+    ['edgeLushness',       env.canopyEdgeLushness.toFixed(2)  ],
     ['branchDepth',        String(env.branchDepth)            ],
+    ['fps',                perfState.smoothFps.toFixed(1)     ],
+    ['quality',            perfState.qualityScale.toFixed(2)  ],
     ['',                   ''                                 ],
     ['[SPC] rnd  [C] panel  [D] debug', '', false, true       ],
   ];
+
+  fill(0, 0, 0, 145); noStroke();
+  rect(PAD - 8, PAD - 8, 330, LINE * rows.length + 18, 7);
+  textSize(12);
 
   rows.forEach(([label, val, isHeader, isDim], i) => {
     const y = PAD + i * LINE;

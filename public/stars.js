@@ -15,6 +15,12 @@ class StarField {
   constructor() {
     this.lat      = 45;       // observer latitude (°N)
     this.baseLST  = 342;     // LST at midnight ~2026-03-07 in degrees
+    this.nightThreshold = { start: 20.5, end: 6.5 };
+    this.wasNight = null;
+    this.cacheDirty = true;
+    this.lastConfigStamp = '';
+    this.nightBuffer = createGraphics(windowWidth, windowHeight);
+    this.nightBuffer.pixelDensity(1);
 
     this.nameMap = {};        // must be initialised BEFORE _buildStars() writes to it
     this.stars   = this._buildStars();
@@ -56,6 +62,16 @@ class StarField {
       'Pegasus':     [['Alpheratz','Markab'],['Markab','Scheat']],
       'Andromeda':   [['Alpheratz','Mirach'],['Mirach','Almach']],
     };
+  }
+
+  resize() {
+    this.nightBuffer = createGraphics(windowWidth, windowHeight);
+    this.nightBuffer.pixelDensity(1);
+    this.cacheDirty = true;
+  }
+
+  invalidateCache() {
+    this.cacheDirty = true;
   }
 
   // ----------------------------------------------------------
@@ -266,7 +282,7 @@ class StarField {
   // Milky Way — wide, very diffuse glow band
   // More passes at lower opacity produce a genuine nebulous look.
   // ----------------------------------------------------------
-  _drawMilkyWay(lst, alpha, cx, cy, scale) {
+  _drawMilkyWay(gfx, lst, alpha, cx, cy, scale) {
     if (alpha < 0.05) return;
 
     const pts = this.mwSpine
@@ -274,84 +290,130 @@ class StarField {
       .filter(Boolean);
     if (pts.length < 3) return;
 
-    noFill();
-    // 10 passes: widest first, narrowing, opacity builds toward center
-    for (let pass = 0; pass < 10; pass++) {
-      const pct     = pass / 9;
-      const w       = lerp(scale * 0.50, scale * 0.04, pct);   // very wide outer glow
-      const opacity = lerp(2, 14, pct) * alpha;
-      // Slight colour shift: outer warm teal, inner cooler blue-white
-      const pr = lerp(160, 200, pct);
-      const pg = lerp(210, 218, pct);
-      const pb = lerp(255, 255, pct);
-      stroke(pr, pg, pb, opacity);
-      strokeWeight(w);
-      beginShape();
-      pts.forEach(p => curveVertex(p.sx, p.sy));
-      curveVertex(pts[pts.length - 1].sx, pts[pts.length - 1].sy);
-      endShape();
+    gfx.noFill();
+    // Subtle diffuse backbone: lower opacity + irregular thickness.
+    for (let pass = 0; pass < 7; pass++) {
+      const pct = pass / 6;
+      const w = lerp(scale * 0.24, scale * 0.035, pct); // narrower than before
+      const opacity = lerp(0.9, 4.2, pct) * alpha;      // much softer than before
+      const pr = lerp(150, 186, pct);
+      const pg = lerp(195, 208, pct);
+      const pb = lerp(230, 245, pct);
+      const wobble = sin(pass * 1.3) * 0.02;
+
+      gfx.stroke(pr, pg, pb, opacity);
+      gfx.strokeWeight(w * (1 + wobble));
+      gfx.beginShape();
+      pts.forEach(p => gfx.curveVertex(p.sx, p.sy));
+      gfx.curveVertex(pts[pts.length - 1].sx, pts[pts.length - 1].sy);
+      gfx.endShape();
     }
+
+    // Mottled core patches: makes the band look less like a single line.
+    gfx.noStroke();
+    const blurAmt = 26 * alpha;
+    gfx.drawingContext.filter = `blur(${blurAmt.toFixed(1)}px)`;
+    
+    for (let i = 1; i < pts.length - 1; i++) {
+      const p = pts[i];
+      const n = noise(i * 0.21, this.baseLST * 0.003);
+      const local = sin((i / pts.length) * PI);
+      const strength = local * n;
+      const a = (5 + strength * 22) * alpha; // Slightly higher opacity to survive heavy blur
+      if (a < 1.2) continue;
+
+      const patchW = lerp(scale * 0.12, scale * 0.28, strength); // Even larger patches for better blending
+      const patchH = patchW * lerp(0.6, 1.0, noise(i * 0.37, 12.7));
+
+      gfx.fill(
+        lerp(170, 210, strength),
+        lerp(200, 225, strength),
+        lerp(235, 255, strength),
+        a
+      );
+      gfx.ellipse(
+        p.sx + map(noise(i * 0.51, 4.9), 0, 1, -patchW * 0.35, patchW * 0.35),
+        p.sy + map(noise(i * 0.47, 8.3), 0, 1, -patchH * 0.35, patchH * 0.35),
+        patchW,
+        patchH
+      );
+    }
+    gfx.drawingContext.filter = 'none';
+    gfx.drawingContext.filter = 'none';
   }
 
   // ----------------------------------------------------------
-  // Constellation lines + labels
+  // Constellation lines (No labels)
   // ----------------------------------------------------------
-  _drawConstellations(alpha) {
+  _drawConstellations(gfx, alpha) {
     if (!window._ncvShowConstellations || alpha < 0.05) return;
+    const cMul = constrain(env.constellationBrightness ?? 1, 0, 2);
 
-    stroke(180, 210, 255, 40 * alpha);
-    strokeWeight(0.8);
-    noFill();
+    // Much brighter, clearer lines (higher base opacity + glow)
+    gfx.stroke(200, 230, 255, 180 * alpha * cMul);
+    gfx.strokeWeight(1.4);
+    gfx.noFill();
 
     for (const [consName, lines] of Object.entries(this.constellations)) {
-      let labelPos = null;
-
       for (const [nameA, nameB] of lines) {
         const sA = this.nameMap[nameA];
         const sB = this.nameMap[nameB];
         if (!sA || !sB || !sA.visible || !sB.visible) continue;
 
-        line(sA.sx, sA.sy, sB.sx, sB.sy);
-        if (!labelPos) labelPos = { x: (sA.sx + sB.sx) * 0.5, y: (sA.sy + sB.sy) * 0.5 };
-      }
-
-      // Constellation name
-      if (labelPos) {
-        noStroke();
-        fill(160, 200, 255, 65 * alpha);
-        textSize(10);
-        textAlign(CENTER, CENTER);
-        text(consName.toUpperCase(), labelPos.x, labelPos.y - 12);
-        textAlign(LEFT, BASELINE);
+        gfx.line(sA.sx, sA.sy, sB.sx, sB.sy);
       }
     }
-
-    // Individual star names for the named bright stars
-    noStroke();
-    fill(200, 220, 255, 55 * alpha);
-    textSize(9);
-    for (const s of this.stars) {
-      if (!s.visible || !s.name || s.mag > 2.0) continue;
-      text(s.name, s.sx + 6, s.sy - 4);
-    }
+    
+    // Names and labels removed as requested.
   }
 
-  // ----------------------------------------------------------
-  // Main draw
-  // ----------------------------------------------------------
-  draw() {
-    const alpha = this._starAlpha();
-    if (alpha <= 0) return;
+  isNight() {
+    return env.timeOfDay < this.nightThreshold.end || env.timeOfDay > this.nightThreshold.start;
+  }
 
+  updateCache() {
+    const nowNight = this.isNight();
+    const configStamp = [
+      (env.starBrightness ?? 1).toFixed(2),
+      (env.constellationBrightness ?? 1).toFixed(2),
+      window._ncvShowConstellations ? '1' : '0',
+    ].join('|');
+    if (this.wasNight === null) this.wasNight = nowNight;
+    if (configStamp !== this.lastConfigStamp) {
+      this.lastConfigStamp = configStamp;
+      this.cacheDirty = true;
+    }
+
+    if (nowNight !== this.wasNight) {
+      this.wasNight = nowNight;
+      if (nowNight) this.cacheDirty = true;
+    }
+
+    if (nowNight && this.cacheDirty) this._renderNightBuffer();
+  }
+
+  getNightBuffer() {
+    return this.nightBuffer;
+  }
+
+  _renderNightBuffer() {
+    const sMul = constrain(env.starBrightness ?? 1, 0, 2);
+    const alpha = this._starAlpha() * sMul;
+    const gfx   = this.nightBuffer;
     const lst   = this._getLST();
-    const cx    = width  / 2;
+    const cx    = width / 2;
     const cy    = height / 2;
     const scale = min(width, height) * 0.5;
-    const t     = frameCount * 0.014;
 
-    this._drawMilkyWay(lst, alpha, cx, cy, scale);
+    gfx.clear();
+    if (alpha <= 0) {
+      this.cacheDirty = false;
+      return;
+    }
 
-    noStroke();
+    this._drawMilkyWay(gfx, lst, alpha, cx, cy, scale);
+
+    gfx.noStroke();
     for (const s of this.stars) {
       const proj = this._project(s.ra, s.dec, lst, cx, cy, scale);
       if (!proj) { s.visible = false; continue; }
@@ -359,25 +421,21 @@ class StarField {
       s.sx = proj.sx;
       s.sy = proj.sy;
 
-      // Twinkling via Perlin noise
-      const tw   = noise(s.twinklePhase + t);
-      const szMod  = map(tw, 0, 1, 0.75, 1.30);
-      const aMod   = map(tw, 0, 1, 0.78, 1.00);
-      const a      = s.baseAlpha * alpha * aMod;
-      const sz     = s.baseSize * szMod;
+      const a = constrain(s.baseAlpha * alpha, 0, 255);
+      const sz = s.baseSize;
 
-      // Atmospheric glow for bright stars
       if (s.mag < 2.0) {
         const glowPx = sz * 5;
-        drawingContext.shadowBlur  = glowPx;
-        drawingContext.shadowColor = `rgba(${s.r},${s.g},${s.b},${(alpha * 0.7).toFixed(2)})`;
+        gfx.drawingContext.shadowBlur = glowPx;
+        gfx.drawingContext.shadowColor = `rgba(${s.r},${s.g},${s.b},${(alpha * 0.7).toFixed(2)})`;
       }
 
-      fill(s.r, s.g, s.b, a);
-      circle(s.sx, s.sy, sz);
-      drawingContext.shadowBlur = 0;
+      gfx.fill(s.r, s.g, s.b, a);
+      gfx.circle(s.sx, s.sy, sz);
+      gfx.drawingContext.shadowBlur = 0;
     }
 
-    this._drawConstellations(alpha);
+    this._drawConstellations(gfx, alpha);
+    this.cacheDirty = false;
   }
 }
