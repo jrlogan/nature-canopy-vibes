@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nature Canopy Vibes</title>
+  <style>
+    /* Edge-to-edge, no chrome — critical for ceiling projection */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+
+  <!-- 1. p5.js — pinned version for Raspberry Pi stability -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+
+  <!-- 2. Socket.io client — auto-served by the Socket.io server -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <!-- 3. Visual subsystems (order matters: each builds on the previous) -->
+  <script src="stars.js"></script>
+  <script src="canopy.js"></script>
+  <script src="creatures.js"></script>
+
+  <!-- 4. Control panel — injects its own DOM/CSS, exposes _ncv* globals -->
+  <script src="controls.js"></script>
+
+  <!-- 5. Main sketch — initialises everything, runs the render loop -->
+  <script src="sketch.js"></script>
+
+</body>
+</html>
