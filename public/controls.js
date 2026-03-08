@@ -175,6 +175,7 @@
   // ----------------------------------------------------------
   const panel = document.createElement('div');
   panel.id = 'ncv-panel';
+  panel.classList.add('hidden');
   panel.innerHTML = `
     <h2><span id="ncv-socket-dot"></span>Environment Controls</h2>
 
@@ -448,7 +449,7 @@
     <div class="ncv-btn-row">
       <button class="ncv-btn" id="ncv-rand-btn">Randomise</button>
       <button class="ncv-btn" id="ncv-const-btn">Constellations: OFF</button>
-      <button class="ncv-btn" id="ncv-debug-btn">Debug: ON</button>
+      <button class="ncv-btn" id="ncv-debug-btn">Debug: OFF</button>
     </div>
 
     <div class="ncv-hint">C — toggle panel &nbsp;|&nbsp; Space — randomise</div>

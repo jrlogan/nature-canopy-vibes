@@ -109,6 +109,29 @@
     .single-btn-row {
       margin-top: 6px;
     }
+    .info-card {
+      margin-top: 8px;
+      border: 1px solid rgba(156, 203, 241, 0.24);
+      background: rgba(6, 13, 22, 0.74);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 12px;
+    }
+    .info-item {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.92rem;
+      color: #a7bfd4;
+    }
+    .info-item b {
+      color: #eff7ff;
+      font-weight: 700;
+      margin-left: 8px;
+    }
     #btn-sky-labels.on {
       border-color: rgba(118, 226, 163, 0.9);
       color: #e9fff0;
@@ -133,6 +156,7 @@
         <p class="section-title">Location</p>
         <div class="city-grid">
           <button class="city-btn" data-lat="41.3083" data-lon="-72.9279" data-name="New Haven, CT, USA" type="button">New Haven, USA</button>
+          <button class="city-btn" data-lat="42.9745" data-lon="-82.4066" data-name="Sarnia, Ontario, Canada" type="button">Sarnia, Canada</button>
           <button class="city-btn" data-lat="34.0522" data-lon="-118.2437" data-name="Los Angeles, CA, USA" type="button">Los Angeles, USA</button>
           <button class="city-btn" data-lat="61.2181" data-lon="-149.9003" data-name="Anchorage, AK, USA" type="button">Anchorage, USA</button>
           <button class="city-btn" data-lat="21.3069" data-lon="-157.8583" data-name="Honolulu, HI, USA" type="button">Honolulu, USA</button>
@@ -141,12 +165,28 @@
           <button class="city-btn" data-lat="-12.0464" data-lon="-77.0428" data-name="Lima, Peru" type="button">Lima, Peru</button>
           <button class="city-btn" data-lat="-33.9249" data-lon="18.4241" data-name="Cape Town, South Africa" type="button">Cape Town, South Africa</button>
           <button class="city-btn" data-lat="-33.8688" data-lon="151.2093" data-name="Sydney, Australia" type="button">Sydney, Australia</button>
+          <button class="city-btn" data-lat="-50.3370" data-lon="-72.2640" data-name="El Calafate, Patagonia, Argentina" type="button">El Calafate, Patagonia</button>
           <button class="city-btn" data-lat="35.6762" data-lon="139.6503" data-name="Tokyo, Japan" type="button">Tokyo, Japan</button>
+          <button class="city-btn" data-lat="52.2297" data-lon="21.0122" data-name="Warsaw, Poland" type="button">Warsaw, Poland</button>
+          <button class="city-btn" data-lat="3.1390" data-lon="101.6869" data-name="Kuala Lumpur, Malaysia" type="button">Kuala Lumpur, Malaysia</button>
           <button class="city-btn" data-lat="69.6492" data-lon="18.9553" data-name="Tromso, Norway" type="button">Tromso, Norway</button>
           <button class="city-btn" data-lat="89.9" data-lon="135.0" data-name="North Pole Station" type="button">North Pole Station</button>
         </div>
         <div class="single-btn-row">
           <button id="btn-sky-labels" type="button">Constellations & Labels: OFF</button>
+        </div>
+        <div class="info-card">
+          <p class="section-title" style="margin-bottom:8px;">City Conditions</p>
+          <div class="info-grid">
+            <div class="info-item"><span>Time</span><b id="info-time">--:--</b></div>
+            <div class="info-item"><span>Season</span><b id="info-season">--</b></div>
+            <div class="info-item"><span>Weather</span><b id="info-weather">--</b></div>
+            <div class="info-item"><span>Moon</span><b id="info-moon">--</b></div>
+            <div class="info-item"><span>Temp</span><b id="info-temp">--</b></div>
+            <div class="info-item"><span>Wind</span><b id="info-wind">--</b></div>
+            <div class="info-item"><span>Cloud</span><b id="info-cloud">--</b></div>
+            <div class="info-item"><span>Precipitation</span><b id="info-rain">--</b></div>
+          </div>
         </div>
       </div>
 

@@ -405,3 +405,127 @@ class MurmurationSystem {
     }
   }
 }
+
+// ----------------------------------------------------------
+// Goose migration — sparse V formations in fall where plausible.
+// ----------------------------------------------------------
+class GooseMigrationSystem {
+  constructor() {
+    this.formations = [];
+    this.nextSpawn = millis() + random(18000, 42000);
+  }
+
+  _seasonKey() {
+    const s = String(env.season || 'auto').toLowerCase();
+    if (s === 'spring' || s === 'summer' || s === 'fall' || s === 'winter') return s;
+    const dRaw = env.liveDateISO ? new Date(env.liveDateISO) : new Date();
+    const d = Number.isFinite(dRaw.getTime()) ? dRaw : new Date();
+    let m = d.getMonth() + 1;
+    const lat = Number(env.liveLocationLat);
+    if (Number.isFinite(lat) && lat < 0) {
+      m += 6;
+      if (m > 12) m -= 12;
+    }
+    if (m === 12 || m <= 2) return 'winter';
+    if (m <= 5) return 'spring';
+    if (m <= 8) return 'summer';
+    return 'fall';
+  }
+
+  _locationSupportsMigration() {
+    const lat = Math.abs(Number(env.liveLocationLat) || 0);
+    if (lat < 24 || lat > 72) return false;
+    const name = String(env.liveLocationName || '').toLowerCase();
+    if (name.includes('north pole')) return false;
+    return true;
+  }
+
+  _spawnFormation() {
+    const northbound = (Number(env.liveLocationLat) || 0) < 0;
+    const y = random(height * 0.18, height * 0.40);
+    const fromLeft = random() < 0.5;
+    const dir = fromLeft ? 1 : -1;
+    const leaderX = fromLeft ? -80 : width + 80;
+    const speed = random(2.6, 4.0);
+    const count = floor(random(9, 19));
+    const wingGap = random(16, 25);
+    const armAngle = northbound ? random(-0.24, 0.02) : random(0.02, 0.24);
+    const birds = [];
+    birds.push({ slot: 0, side: 0 });
+    for (let i = 1; i < count; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const slot = Math.ceil(i / 2);
+      birds.push({ slot, side });
+    }
+
+    this.formations.push({
+      x: leaderX,
+      y,
+      dir,
+      speed,
+      wingGap,
+      armAngle,
+      wobble: random(1000),
+      birds,
+      age: 0,
+      life: floor(random(560, 980)),
+    });
+  }
+
+  update() {
+    const tod = env.timeOfDay;
+    const isNight = tod < 6.4 || tod > 20.6;
+    const season = this._seasonKey();
+    const supports = this._locationSupportsMigration();
+    const storm = env.currentWeather === 'storm';
+    const now = millis();
+
+    if (season === 'fall' && supports && !isNight && !storm && now >= this.nextSpawn && this.formations.length < 1) {
+      this._spawnFormation();
+      this.nextSpawn = now + random(36000, 88000);
+    } else if (!(season === 'fall' && supports) || storm || isNight) {
+      this.nextSpawn = now + random(26000, 70000);
+    }
+
+    for (const f of this.formations) {
+      f.age++;
+      f.x += f.speed * f.dir;
+      f.y += sin(frameCount * 0.008 + f.wobble) * 0.35;
+    }
+    this.formations = this.formations.filter((f) => {
+      if (f.age > f.life) return false;
+      if (f.x < -220 || f.x > width + 220) return false;
+      return true;
+    });
+  }
+
+  draw() {
+    if (!this.formations.length) return;
+    const isNight = env.timeOfDay < 6.4 || env.timeOfDay > 20.6;
+    const baseA = isNight ? 120 : 165;
+    push();
+    noStroke();
+    for (const f of this.formations) {
+      const fade = constrain(Math.min(f.age / 80, (f.life - f.age) / 90), 0, 1);
+      const a = baseA * fade;
+      fill(isNight ? 26 : 34, isNight ? 20 : 30, isNight ? 36 : 26, a);
+      for (const b of f.birds) {
+        const dx = b.slot * f.wingGap * -f.dir;
+        const dy = b.side * b.slot * f.wingGap * 0.56 + Math.sin(frameCount * 0.03 + b.slot * 0.7 + f.wobble) * 2.2;
+        const bx = f.x + dx;
+        const by = f.y + dy + Math.sin(f.armAngle) * b.slot * 4;
+        push();
+        translate(bx, by);
+        rotate((f.dir > 0 ? 0 : PI) + b.side * 0.05);
+        beginShape();
+        vertex(-5, 0);
+        vertex(0, -1.8);
+        vertex(5, 0);
+        vertex(0, 1.6);
+        endShape(CLOSE);
+        pop();
+      }
+    }
+    pop();
+  }
+}

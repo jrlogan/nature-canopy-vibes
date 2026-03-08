@@ -20,12 +20,18 @@ const LIVE_FETCH_MS = 10 * 60 * 1000;
 const environmentState = {
   timeOfDay:      21.2,
   windSpeed:      0.22,
+  liveWindKph:    10,
+  liveTemperatureC: 8,
+  liveCloudCoverPct: 28,
+  liveIsDay: false,
+  liveSeasonLabel: 'Late Winter',
   currentWeather: 'clear',
   starBrightness: 1.1,
   constellationBrightness: 1.0,
   showConstellations: false,
   showConstellationLabels: false,
   showPlantLabels: false,
+  forceTreeType: '',
   forceTreeless: false,
   cloudCover: 0.28,
   skyBlur: 1.0,
@@ -77,6 +83,69 @@ function mapWeatherCode(code = 0) {
   return 'clear';
 }
 
+function fracHash(n) {
+  const x = Math.sin(n) * 43758.5453123;
+  return x - Math.floor(x);
+}
+
+function deriveSeasonLabel(dateISO, lat, seasonMode = 'auto') {
+  const forced = String(seasonMode || 'auto').toLowerCase();
+  if (forced === 'spring' || forced === 'summer' || forced === 'fall' || forced === 'winter') {
+    return forced[0].toUpperCase() + forced.slice(1);
+  }
+  const dRaw = dateISO ? new Date(dateISO) : new Date();
+  const d = Number.isFinite(dRaw.getTime()) ? dRaw : new Date();
+  const hemiSouth = Number.isFinite(lat) && lat < 0;
+  let m = d.getMonth() + 1;
+  let day = d.getDate();
+  if (hemiSouth) {
+    m += 6;
+    if (m > 12) m -= 12;
+  }
+  const season = (m === 12 || m <= 2)
+    ? 'Winter'
+    : (m <= 5 ? 'Spring' : (m <= 8 ? 'Summer' : 'Fall'));
+  let phase = 'Mid';
+  if (day <= 10) phase = 'Early';
+  else if (day >= 21) phase = 'Late';
+  return `${phase} ${season}`;
+}
+
+function applyLocationBaselineClimate() {
+  const lat = Number(environmentState.liveLocationLat);
+  const lon = Number(environmentState.liveLocationLon);
+  const tod = Number(environmentState.timeOfDay);
+  const absLat = Math.abs(Number.isFinite(lat) ? lat : 0);
+  const dateISO = environmentState.liveDateISO || new Date().toISOString();
+  const dRaw = new Date(dateISO);
+  const d = Number.isFinite(dRaw.getTime()) ? dRaw : new Date();
+  const month = d.getUTCMonth() + 1;
+  const hemiSouth = Number.isFinite(lat) && lat < 0;
+  const seasonalCos = Math.cos((((month - (hemiSouth ? 1 : 7)) / 12) * Math.PI * 2));
+  const seasonal = seasonalCos * (10 + absLat * 0.08);
+  const baseline = 27 - absLat * 0.48;
+  const daily = Number.isFinite(tod) ? Math.sin(((tod - 7) / 24) * Math.PI * 2) * 4.5 : 0;
+  const noise = (fracHash((lat || 0) * 17.7 + (lon || 0) * 9.2 + d.getUTCDate() * 1.31) - 0.5) * 2.2;
+  environmentState.liveTemperatureC = baseline + seasonal + daily + noise;
+  const windBase = 7 + absLat * 0.17;
+  const windNoise = (fracHash((lat || 0) * 3.1 + (lon || 0) * 1.7 + d.getUTCDate() * 0.71) - 0.5) * 5.0;
+  environmentState.liveWindKph = Math.max(1, windBase + windNoise);
+  environmentState.liveCloudCoverPct = Math.round(environmentState.cloudCover * 100);
+  environmentState.liveIsDay = !(environmentState.timeOfDay < 6.5 || environmentState.timeOfDay > 20.5);
+}
+
+function refreshDerivedLiveFields() {
+  if (!Number.isFinite(environmentState.liveTemperatureC)) environmentState.liveTemperatureC = 8;
+  if (!Number.isFinite(environmentState.liveWindKph)) environmentState.liveWindKph = Math.max(1, environmentState.windSpeed * 45);
+  if (!Number.isFinite(environmentState.liveCloudCoverPct)) environmentState.liveCloudCoverPct = Math.round(environmentState.cloudCover * 100);
+  environmentState.liveIsDay = !(environmentState.timeOfDay < 6.5 || environmentState.timeOfDay > 20.5);
+  environmentState.liveSeasonLabel = deriveSeasonLabel(
+    environmentState.liveDateISO,
+    Number(environmentState.liveLocationLat),
+    environmentState.season,
+  );
+}
+
 async function fetchLiveWeather() {
   const lat = environmentState.liveLocationLat;
   const lon = environmentState.liveLocationLon;
@@ -93,8 +162,13 @@ async function fetchLiveWeather() {
     environmentState.liveDateISO = `${cur.time}:00`;
   }
   environmentState.cloudCover = clamp01((cur.cloud_cover ?? 30) / 100);
+  environmentState.liveCloudCoverPct = Math.round(cur.cloud_cover ?? (environmentState.cloudCover * 100));
   environmentState.windSpeed = clamp01((cur.wind_speed_10m ?? 8) / 45);
+  environmentState.liveWindKph = Number.isFinite(cur.wind_speed_10m) ? cur.wind_speed_10m : Math.round(environmentState.windSpeed * 45);
+  environmentState.liveTemperatureC = Number.isFinite(cur.temperature_2m) ? cur.temperature_2m : environmentState.liveTemperatureC;
+  environmentState.liveIsDay = (cur.is_day ?? 0) === 1;
   environmentState.currentWeather = mapWeatherCode(cur.weather_code ?? 0);
+  refreshDerivedLiveFields();
   if (environmentState.currentWeather === 'storm') {
     environmentState.cloudCover = Math.max(environmentState.cloudCover, 0.75);
   }
@@ -131,6 +205,12 @@ function tickRandomSimulation() {
   const cloudDelta = season === 'winter' ? 0.20 : (season === 'summer' ? 0.14 : 0.18);
   environmentState.windSpeed = clamp01(environmentState.windSpeed + (Math.random() - 0.5) * windDelta);
   environmentState.cloudCover = clamp01(environmentState.cloudCover + (Math.random() - 0.5) * cloudDelta);
+  environmentState.liveCloudCoverPct = Math.round(environmentState.cloudCover * 100);
+  environmentState.liveWindKph = Math.round(environmentState.windSpeed * 45);
+  environmentState.liveIsDay = !(environmentState.timeOfDay < 6.5 || environmentState.timeOfDay > 20.5);
+  const dailyHeat = Math.sin(((environmentState.timeOfDay - 6) / 24) * Math.PI * 2) * 5;
+  const seasonBase = season === 'winter' ? 2 : (season === 'spring' ? 10 : (season === 'fall' ? 11 : 22));
+  environmentState.liveTemperatureC = seasonBase + dailyHeat + (Math.random() * 1.4 - 0.7);
 
   const roll = Math.random();
   const stormP = season === 'summer' ? 0.07 : (season === 'winter' ? 0.03 : 0.05);
@@ -146,6 +226,7 @@ function tickRandomSimulation() {
     environmentState.cloudCover = Math.max(environmentState.cloudCover, 0.5);
     environmentState.windSpeed = Math.max(environmentState.windSpeed, 0.25);
   }
+  refreshDerivedLiveFields();
 }
 
 function applyScenePreset(preset) {
@@ -248,6 +329,12 @@ function randomizeCanopyForLocation() {
   environmentState.treeBranchChaos = clamp01(0.42 + Math.random() * 0.46);
 }
 
+function normalizeForcedTreeType(v) {
+  const s = String(v || '').trim().toLowerCase();
+  if (s === 'conifer' || s === 'palm') return s;
+  return '';
+}
+
 async function simulationTick() {
   try {
     if (environmentState.simulationMode === 'random') {
@@ -308,13 +395,18 @@ io.on('connection', (socket) => {
         environmentState.liveLocationName = String(payload.name || payload.query || environmentState.liveLocationName);
         environmentState.liveLocationLat = lat;
         environmentState.liveLocationLon = lon;
+        environmentState.forceTreeType = normalizeForcedTreeType(payload.forceTreeType);
         setApproxLocalTimeFromLon(lon);
+        applyLocationBaselineClimate();
       } else {
         await geocodeLocation(payload.query);
+        environmentState.forceTreeType = '';
         setApproxLocalTimeFromLon(environmentState.liveLocationLon);
+        applyLocationBaselineClimate();
       }
       environmentState.simulationMode = 'live';
       randomizeCanopyForLocation();
+      refreshDerivedLiveFields();
       // Always push new location immediately so clients rerender stars/season by location.
       if (!environmentState.liveDateISO) environmentState.liveDateISO = new Date().toISOString();
       io.emit('env:sync', environmentState);
@@ -345,15 +437,20 @@ io.on('connection', (socket) => {
             environmentState.liveLocationName = String(data.name || query || environmentState.liveLocationName);
             environmentState.liveLocationLat = lat;
             environmentState.liveLocationLon = lon;
+            environmentState.forceTreeType = normalizeForcedTreeType(data.forceTreeType);
             setApproxLocalTimeFromLon(lon);
+            applyLocationBaselineClimate();
           } else if (query) {
             await geocodeLocation(query);
+            environmentState.forceTreeType = '';
             setApproxLocalTimeFromLon(environmentState.liveLocationLon);
+            applyLocationBaselineClimate();
           } else {
             return;
           }
           environmentState.simulationMode = 'live';
           randomizeCanopyForLocation();
+          refreshDerivedLiveFields();
           io.emit('remote:command', { command, data });
           io.emit('env:sync', environmentState);
           await fetchLiveWeather();

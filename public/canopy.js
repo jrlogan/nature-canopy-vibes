@@ -25,6 +25,7 @@
 class Canopy {
   constructor() {
     this.trees        = [];
+    this._treeStyles  = {};
     this.perchNodes   = [];
     this._leafBuf     = null; // p5.Graphics offscreen leaf buffer
     this._leafStep    = 1;    // stabilized LOD step to avoid frame-to-frame popping
@@ -102,8 +103,10 @@ class Canopy {
     const springK = this._smoothstep(springStart, springFull, doyN);
     const fallK   = this._smoothstep(fallStart, fallBare, doyN);
     let leafK   = constrain(springK * (1 - fallK), 0, 1);
-    if (absLat < 40) leafK = Math.max(0.72, leafK);
-    else if (absLat < 50) leafK = Math.max(0.42, leafK);
+    // Keep mild subtropical zones mostly evergreen, but avoid forcing
+    // heavy winter foliage in true temperate latitudes (e.g. New Haven).
+    if (absLat < 34) leafK = Math.max(0.72, leafK);
+    else if (absLat < 40) leafK = Math.max(0.32, leafK);
 
     let key = 'winter';
     if (leafK <= 0.08) key = 'winter';
@@ -155,12 +158,75 @@ class Canopy {
     return base;
   }
 
+  _chooseTreeMixProfile() {
+    const forced = String(env.forceTreeType || '').toLowerCase();
+    if (forced === 'conifer') {
+      return { conifer: 1, birch: 0, dead: 0, palm: 0 };
+    }
+    if (forced === 'palm') {
+      return { conifer: 0, birch: 0, dead: 0, palm: 1 };
+    }
+    const lat = Math.abs(Number(env.liveLocationLat) || 0);
+    const name = String(env.liveLocationName || '').toLowerCase();
+    let conifer = 0.14;
+    let birch = 0.18;
+    let dead = 0.06;
+    let palm = 0.0;
+    if (lat >= 60) { conifer = 0.82; birch = 0.08; dead = 0.10; }
+    else if (lat >= 52) { conifer = 0.62; birch = 0.18; dead = 0.10; }
+    else if (lat >= 38) { conifer = 0.26; birch = 0.32; dead = 0.12; } // mixed temperate
+    else if (lat <= 18) { conifer = 0.05; birch = 0.04; dead = 0.02; palm = 0.44; }
+    else if (lat <= 24) { conifer = 0.07; birch = 0.06; dead = 0.03; palm = 0.24; }
+    if (name.includes('north pole')) { conifer = 0.0; birch = 0.0; dead = 0.0; palm = 0.0; }
+    if (name.includes('anchorage') || name.includes('tromso') || name.includes('reykjavik')) conifer += 0.12;
+    if (name.includes('new haven') || name.includes('new york') || name.includes('tokyo') || name.includes('lisbon')) conifer += 0.06;
+    if (name.includes('lisbon') || name.includes('los angeles') || name.includes('lima')) dead += 0.04;
+    const seasonK = this._seasonKey();
+    if (seasonK === 'winter') dead += 0.08;
+    else if (seasonK === 'fall') dead += 0.04;
+    return {
+      conifer: constrain(conifer, 0, 0.8),
+      birch: constrain(birch, 0, 0.45),
+      dead: constrain(dead, 0, 0.22),
+      palm: constrain(palm, 0, 0.60),
+    };
+  }
+
+  _pickTreeStyle(treeId) {
+    const mix = this._chooseTreeMixProfile();
+    const r = Math.random();
+    let type = 'broadleaf';
+    if (r < mix.dead) type = 'dead';
+    else if (r < mix.dead + mix.conifer) type = 'conifer';
+    else if (r < mix.dead + mix.conifer + mix.birch) type = 'birch';
+    else if (r < mix.dead + mix.conifer + mix.birch + mix.palm) type = 'palm';
+    const forceType = String(env.forceTreeType || '').toLowerCase();
+    const coniferForm = type === 'conifer'
+      ? (forceType === 'conifer'
+        ? (Math.random() < 0.985 ? 'pine' : 'spruce')
+        : (Math.random() < 0.95 ? 'pine' : 'spruce'))
+      : '';
+    return {
+      treeId,
+      type,
+      coniferForm,
+      heightMul: type === 'palm'
+        ? random(1.24, 1.52)
+        : (type === 'birch' ? random(0.68, 0.86) : (type === 'conifer' ? random(0.82, 0.96) : 1.0)),
+      foliageMul: type === 'dead' ? 0 : (type === 'conifer' ? random(1.15, 1.65) : 1.0),
+      leafSizeMul: type === 'palm' ? random(1.22, 1.58) : (type === 'conifer' ? random(0.38, 0.58) : 1.0),
+      seasonOffset: random(-0.16, 0.16),
+      barkTone: random(-10, 12),
+    };
+  }
+
   // ----------------------------------------------------------
   // Build — perimeter-rooted layers to preserve "looking up" feel:
   // all trunks start from edge/offscreen ring and grow inward.
   // ----------------------------------------------------------
   _build() {
     this.trees = [];
+    this._treeStyles = {};
     const h = height, w = width;
 
     const reach     = this._treeBranchReach();
@@ -185,8 +251,10 @@ class Canopy {
     }
     const roots = [...heroRoots, ...fillRoots];
     for (const cfg of roots) {
+      const style = this._pickTreeStyle(cfg.treeId);
+      this._treeStyles[cfg.treeId] = style;
       const lenMult   = lerp(0.65, 1.15, reach) * cfg.layerLen;
-      const len       = h * 0.25 * lenMult;
+      const len       = h * 0.25 * lenMult * (style.heightMul ?? 1);
       const edgeBoost = 1 + constrain(env.canopyEdgeLushness ?? 1.0, 0, 1.5) * cfg.edgeAffinity * 1.35;
       const root      = this._makeNode(cfg.a, len, this._maxDepth, edgeBoost, {
         treeId: cfg.treeId,
@@ -200,7 +268,7 @@ class Canopy {
       root.originX    = cfg.x;
       root.originY    = cfg.y;
       // Hero trees (trunkLevel >= 2) get an early shoulder for richer structure.
-      if (cfg.trunkLevel >= 2) {
+      if (cfg.trunkLevel >= 2 && style.type !== 'palm') {
         const shoulderSign = Math.random() < 0.5 ? -1 : 1;
         const shoulder = this._makeNode(
           cfg.a + shoulderSign * random(0.12, 0.24),
@@ -218,7 +286,8 @@ class Canopy {
         );
         root.children.push(shoulder);
       }
-      this._populate(root);
+      if (style.type === 'palm') this._populatePalm(root, style);
+      else this._populate(root);
       this.trees.push(root);
     }
 
@@ -264,7 +333,11 @@ class Canopy {
   }
 
   _removeLastTree() {
-    if (this.trees.length > 1) this.trees.pop();
+    if (this.trees.length > 1) {
+      const last = this.trees[this.trees.length - 1];
+      if (last && Number.isFinite(last.treeId)) delete this._treeStyles[last.treeId];
+      this.trees.pop();
+    }
   }
 
   _addOneTree() {
@@ -317,8 +390,10 @@ class Canopy {
       fanSpan: lerp(0.80, 1.25, chaos) * random(0.88, 1.10),
       splitBias: Math.random() < 0.5 ? -1 : 1,
     };
+    const style = this._pickTreeStyle(cfg.treeId);
+    this._treeStyles[cfg.treeId] = style;
 
-    const len       = height * 0.25 * lerp(0.65, 1.15, reach) * cfg.layerLen;
+    const len       = height * 0.25 * lerp(0.65, 1.15, reach) * cfg.layerLen * (style.heightMul ?? 1);
     const edgeBoost = 1 + constrain(env.canopyEdgeLushness ?? 1.0, 0, 1.5) * cfg.edgeAffinity * 1.35;
 
     const root = this._makeNode(cfg.a, len, this._maxDepth, edgeBoost, {
@@ -329,7 +404,8 @@ class Canopy {
     root.plantName = random(this._plantNames);
     root.originX = cfg.x;
     root.originY = cfg.y;
-    this._populate(root);
+    if (style.type === 'palm') this._populatePalm(root, style);
+    else this._populate(root);
     this.trees.push(root);
 
     // Apply one pass of crown shyness for the new tree against all existing zones.
@@ -641,16 +717,211 @@ class Canopy {
     }
 
     // ----------------------------------------------------------
+    // Palm generator: long mostly-bare trunk with crown fronds.
+    // ----------------------------------------------------------
+  _populatePalm(root, style) {
+    // True palm: one unbranched trunk with a crown anchor.
+    root.leaves = [];
+    root.children = [];
+    root.trunkLevel = Math.max(1, root.trunkLevel);
+    root.meanderBase *= 0.42;
+    root.dropFactor = (root.dropFactor ?? 0.04) * 1.75;
+    const fronds = 4 + Math.floor(random(3)); // 4-6 broad fronds
+    const frondData = [];
+    const crownJitter = random(-0.18, 0.18);
+    let angleDrift = random(-0.10, 0.10);
+    const palmScale = random(0.90, 1.20);
+    const crownSpread = random(0.92, 1.22);
+    const leafletDensity = random(0.90, 1.24);
+    const leafletThickness = random(1.08, 1.48);
+    for (let i = 0; i < fronds; i++) {
+      angleDrift += random(-0.06, 0.06);
+      frondData.push({
+        baseAngle: (i / fronds) * TWO_PI + random(-0.26, 0.26) + crownJitter + angleDrift,
+        lenMul: random(1.00, 1.34),
+        widthMul: random(1.14, 1.52),
+        swayAmp: random(0.020, 0.055),
+        swayPhase: random(TWO_PI),
+        swayRate: random(0.004, 0.012),
+        bendAmp: random(0.06, 0.16),
+        droop: random(0.28, 0.54),
+        leafletCount: Math.max(14, Math.round((18 + Math.floor(random(13))) * leafletDensity)),
+      });
+    }
+    root.palm = {
+      fronds,
+      frondLen: random(122, 210) * palmScale,
+      frondWidth: random(44, 74) * crownSpread,
+      phase: random(TWO_PI),
+      palmScale,
+      crownSpread,
+      leafletDensity,
+      leafletThickness,
+      frondData,
+    };
+  }
+
+    // ----------------------------------------------------------
+    // Conifer generator: strong central leader + tiered side branches.
+    // ----------------------------------------------------------
+  _populateConiferNode(node) {
+    if (node.depth <= 0) return;
+
+    const contLen = node.len * (node.trunkLevel > 0 ? random(0.86, 0.93) : random(0.70, 0.82));
+    const cont = this._makeNode(
+      node.baseAngle + random(-0.06, 0.06),
+      contLen,
+      node.depth - 1,
+      node.leafBoost * 1.02,
+      {
+        treeId: node.treeId,
+        trunkLevel: Math.max(0, node.trunkLevel - 1),
+        meanderBase: node.meanderBase * 0.78,
+        fanCenter: node.fanCenter,
+        fanSpan: node.fanSpan * 0.62,
+        splitBias: node.splitBias,
+      },
+    );
+    node.children.push(cont);
+
+    // Tiered whorl-like side branches, mostly on upper/mid segments.
+    if (node.depth >= 2) {
+      const tiers = node.trunkLevel > 0 ? 2 : 1;
+      for (let i = 0; i < tiers; i++) {
+        const side = i % 2 === 0 ? -1 : 1;
+        const s = random(0.22, 0.46);
+        const sideLen = node.len * random(0.34, 0.56);
+        const sideNode = this._makeNode(
+          node.baseAngle + side * s + random(-0.08, 0.08),
+          sideLen,
+          node.depth - 1,
+          node.leafBoost * random(1.06, 1.22),
+          {
+            treeId: node.treeId,
+            trunkLevel: 0,
+            meanderBase: node.meanderBase * 0.62,
+            fanCenter: node.baseAngle + side * s * 0.72,
+            fanSpan: node.fanSpan * 0.54,
+            splitBias: -node.splitBias,
+          },
+        );
+        // Slightly bias conifer clumps toward branch tips for needle-spray silhouette.
+        for (let j = 0; j < sideNode.leaves.length; j++) {
+          const lf = sideNode.leaves[j];
+          lf.t = constrain(0.60 + random() * 0.36, 0.52, 0.98);
+          lf.perpOff *= 0.64;
+        }
+        node.children.push(sideNode);
+      }
+    }
+
+    for (const c of node.children) this._populateConiferNode(c);
+  }
+
+    // ----------------------------------------------------------
+    // Pine generator: strong central trunk, whorled branch rings.
+    // ----------------------------------------------------------
+  _populatePineNode(node) {
+    if (node.depth <= 0) return;
+    if (node.trunkLevel <= 0) return;
+
+    // Keep central leader dominant and continuous.
+    const contLen = node.len * (node.trunkLevel > 0 ? random(0.88, 0.95) : random(0.76, 0.86));
+    const cont = this._makeNode(
+      node.baseAngle + random(-0.012, 0.012),
+      contLen,
+      node.depth - 1,
+      node.leafBoost * 1.04,
+      {
+        treeId: node.treeId,
+        // Keep the trunk identity for the full pine column.
+        trunkLevel: 1,
+        meanderBase: node.meanderBase * 0.50,
+        fanCenter: node.fanCenter,
+        fanSpan: node.fanSpan * 0.34,
+        splitBias: node.splitBias,
+      },
+    );
+    // Keep trunk visible but not bare; retain more greenery along the leader.
+    if (node.trunkLevel > 0) cont.leaves = cont.leaves.slice(0, Math.max(1, Math.floor(cont.leaves.length * 0.74)));
+    node.children.push(cont);
+
+    // Branch whorls at intervals up the trunk.
+    const baseK = constrain(node.depth / Math.max(1, this._maxDepth), 0, 1); // 1 near base
+    const onWhorl = node.trunkLevel > 0 && node.depth >= 1 && (node.depth % 1 === 0 || random() < 0.98);
+    if (onWhorl && node.depth >= 1) {
+      const whorlCount = (baseK > 0.56 ? 5 : 3) + (random() < 0.55 ? 1 : 0); // very dense lower tiers
+      for (let i = 0; i < whorlCount; i++) {
+        const sign = i % 2 === 0 ? -1 : 1;
+        const baseSpread = lerp(0.52, 0.26, 1 - baseK) + random(-0.06, 0.06);
+        const ang = node.baseAngle + sign * baseSpread + random(-0.10, 0.10);
+        const bLen = node.len * lerp(1.08, 0.48, 1 - baseK) * random(0.98, 1.18); // wider greenery at base
+        const b = this._makeNode(
+          ang,
+          bLen,
+          node.depth - 1,
+          node.leafBoost * random(1.44, 1.86),
+          {
+            treeId: node.treeId,
+            trunkLevel: 0,
+            meanderBase: node.meanderBase * 0.56,
+            fanCenter: ang,
+            fanSpan: 0.44,
+            splitBias: -node.splitBias,
+          },
+        );
+        // Needle sprays concentrated toward branch tips for pine character.
+        for (let j = 0; j < b.leaves.length; j++) {
+          const lf = b.leaves[j];
+          // Greenery should read all along branch, not only at tips.
+          lf.t = constrain(0.34 + random() * 0.62, 0.26, 0.98);
+          lf.perpOff *= 0.74;
+          lf.lw *= lerp(1.72, 1.06, 1 - baseK);
+          lf.lh *= lerp(1.56, 0.98, 1 - baseK);
+        }
+        // Lower thicker whorl branches should carry fuller greenery.
+        if (baseK > 0.56 && b.leaves.length > 0) {
+          const extra = Math.min(36, Math.floor(b.leaves.length * 1.65));
+          for (let ei = 0; ei < extra; ei++) {
+            const src = b.leaves[ei % b.leaves.length];
+            b.leaves.push({
+              ...src,
+              t: constrain((src.t ?? 0.6) + random(-0.08, 0.06), 0.24, 0.99),
+              perpOff: (src.perpOff ?? 0) * random(0.86, 1.18),
+              lw: (src.lw ?? 20) * random(1.12, 1.34),
+              lh: (src.lh ?? 14) * random(1.08, 1.30),
+              phase: (src.phase ?? 0) + random(-0.7, 0.7),
+            });
+          }
+        }
+        // Pine whorl branches are terminal sprays, not recursively branching trees.
+        b.children = [];
+        node.children.push(b);
+      }
+    }
+
+    // Continue only the central trunk leader.
+    this._populatePineNode(cont);
+  }
+
+    // ----------------------------------------------------------
     // Recursively attach children — asymmetric + spread-driven with
     // extra randomization so limb lengths and branch counts vary more.
     // ----------------------------------------------------------
   _populate(node) {
     if (node.depth <= 0) return;
     const MD   = this._maxDepth;
+    const tStyle = this._treeStyles?.[node.treeId] || { type: 'broadleaf' };
+    const isConifer = tStyle.type === 'conifer';
+    if (isConifer) {
+      if (tStyle.coniferForm === 'pine') this._populatePineNode(node);
+      else this._populateConiferNode(node);
+      return;
+    }
     const branchChaos = this._treeBranchChaos();
     const chaosWide = Math.pow(branchChaos, 1.25);
-    const minS = lerp(0.10, 0.44, chaosWide);
-    const maxS = lerp(0.28, 1.18, chaosWide); // stronger high-end chaos spread
+    const minS = isConifer ? lerp(0.06, 0.24, chaosWide) : lerp(0.10, 0.44, chaosWide);
+    const maxS = isConifer ? lerp(0.20, 0.58, chaosWide) : lerp(0.28, 1.18, chaosWide); // stronger high-end chaos spread
 
     const isTrunk = node.trunkLevel > 0;
     const depthFromRoot = MD - node.depth;
@@ -662,7 +933,9 @@ class Canopy {
     const targetAngle = lerp(node.baseAngle, node.fanCenter, aimToFan);
 
     // Higher length decay for trunks to prevent "crazy long" trees.
-    const contLen = node.len * (isTrunk ? (0.78 + Math.random() * 0.16) : (0.58 + Math.random() * 0.24));
+    const contLen = node.len * (isConifer
+      ? (isTrunk ? (0.84 + Math.random() * 0.10) : (0.64 + Math.random() * 0.16))
+      : (isTrunk ? (0.78 + Math.random() * 0.16) : (0.58 + Math.random() * 0.24)));
     const contAngle = targetAngle + (Math.random() - 0.5) * (isTrunk ? 0.14 : 0.32);
     node.children.push(this._makeNode(
       contAngle,
@@ -682,9 +955,11 @@ class Canopy {
     ));
 
     // Irregular side branching: trunks always emit at least one side limb.
-    const splitChance = isTrunk
+    const splitChance = isConifer
+      ? (isTrunk ? 0.78 : (node.depth >= 2 ? lerp(0.54, 0.86, chaosWide) : lerp(0.24, 0.40, chaosWide)))
+      : (isTrunk
       ? 1.0
-      : (node.depth >= 2 ? lerp(0.42, 0.96, chaosWide) : lerp(0.18, 0.44, chaosWide));
+      : (node.depth >= 2 ? lerp(0.42, 0.96, chaosWide) : lerp(0.18, 0.44, chaosWide)));
     if (Math.random() < splitChance) {
       const trunkAlternator = ((MD - node.depth) % 2 === 0) ? 1 : -1;
       const signBase = isTrunk ? trunkAlternator * node.splitBias : (Math.random() < 0.70 ? node.splitBias : -node.splitBias);
@@ -1001,6 +1276,7 @@ class Canopy {
   _updateNode(node, sx, sy, t) {
     node.startX = sx;
     node.startY = sy;
+    const tStyle = this._treeStyles?.[node.treeId] || { type: 'broadleaf', coniferForm: '' };
 
     const depthFromRoot = this._maxDepth - node.depth;
     const depthFactor = 1 + depthFromRoot * 0.28;
@@ -1011,7 +1287,11 @@ class Canopy {
     const stiffLenK = constrain(map(baseLen, 0, height * 0.34, 0.08, 1.0), 0.08, 1.0);
     const trunkK = node.trunkLevel > 0 ? constrain(0.58 + node.trunkLevel * 0.12, 0.58, 0.90) : 1.0;
     const depthFlexK = constrain(map(depthFromRoot, 0, this._maxDepth, 0.82, 1.40), 0.82, 1.40);
-    const stiffness = constrain(stiffLenK * trunkK, 0.08, 1.0);
+    let stiffness = constrain(stiffLenK * trunkK, 0.08, 1.0);
+    if (tStyle.type === 'conifer' && node.trunkLevel > 0) {
+      // Pine/conifer central trunks should feel substantially stiffer.
+      stiffness = constrain(stiffness * 1.34, 0.12, 1.0);
+    }
     const flexK = constrain((1.02 - stiffness) * depthFlexK, 0.14, 1.55);
     const windAmp = (env.windSpeed * 0.28 +
                     (env.currentWeather === 'storm' ? env.windSpeed * 0.22 : 0))
@@ -1106,10 +1386,76 @@ class Canopy {
     draw() {
       if (env.forceTreeless) return;
       this._drawBgLeaves();      // leafed-in background behind everything
+      this._drawPalmFrondsBack();// palm crowns behind trunk
       this._drawLeafPass('back');
       for (const root of this.trees) this._drawBranchPoly(root);
       this._drawLeafPass('front');
       this._drawPlantLabels();
+    }
+
+  _drawPalmFrondsBack() {
+      const tod = env.timeOfDay;
+      const isNight = tod < 6.5 || tod > 20.5;
+      const isTwilight = (tod >= 5.5 && tod < 7) || (tod > 19 && tod < 21);
+      const sun = (!isNight && !isTwilight) ? (1 - abs(tod - 13) / 7) : 0;
+      const flashK = constrain((window._ncvFlashAlpha || 0) / 255, 0, 1);
+      const ft = frameCount;
+      for (const root of this.trees) {
+        const style = this._treeStyles?.[root.treeId];
+        if (!style || style.type !== 'palm' || !root.palm) continue;
+        const cx = root.endX;
+        const cy = root.endY;
+        const persp = this._perspectiveScale(cx, cy);
+        const count = root.palm.fronds || 5;
+        const baseLen = root.palm.frondLen * persp * (style.leafSizeMul ?? 1) * 0.9;
+        const baseW = root.palm.frondWidth * persp;
+        const leafletThickness = root.palm.leafletThickness ?? 1;
+        const wind = constrain(env.windSpeed ?? 0.22, 0, 1);
+        const gustK = constrain(this._gustStrengthAtX(cx), 0, 0.8);
+        const swayK = 0.28 + wind * 0.72 + gustK * 0.65;
+        for (let i = 0; i < count; i++) {
+          const fd = root.palm.frondData?.[i] || { baseAngle: (i / count) * TWO_PI, lenMul: 1, widthMul: 1, swayAmp: 0.05, swayPhase: 0 };
+          const localSway = Math.sin(ft * ((fd.swayRate ?? 0.007) + wind * 0.011) + fd.swayPhase + root.palm.phase) * fd.swayAmp * swayK;
+          const leafBend = Math.sin(ft * ((fd.swayRate ?? 0.007) * 1.7 + wind * 0.018) + fd.swayPhase * 1.6) * (fd.bendAmp ?? 0.1) * swayK;
+          const a = root.currentAngle + fd.baseAngle + localSway;
+          const len = baseLen * fd.lenMul;
+          const wid = baseW * fd.widthMul;
+          let r, g, b, aa;
+          if (isNight) { r = 5; g = 12; b = 6; aa = 215; }
+          else if (isTwilight) { r = 54; g = 90; b = 34; aa = 196; }
+          else { r = 34 + sun * 10; g = 98 + sun * 24; b = 28 + sun * 6; aa = 180; }
+          if (flashK > 0) { r = lerp(r, 0, flashK * 0.95); g = lerp(g, 0, flashK * 0.95); b = lerp(b, 0, flashK * 0.95); }
+
+          push();
+          translate(cx, cy);
+          rotate(a);
+          noFill();
+          // Rachis (center spine), drooping outward.
+          const droopY = wid * (fd.droop ?? 0.4);
+          stroke(r * 0.58, g * 0.66, b * 0.52, aa * 0.78);
+          strokeWeight(max(1.2, persp * 2.0));
+          bezier(0, 0, len * 0.28, droopY * 0.06 * leafBend, len * 0.68, droopY * (0.45 + leafBend * 0.34), len, droopY * (1 + leafBend * 0.26));
+          // Leaflets on both sides, attached to rachis.
+          const lc = fd.leafletCount ?? 22;
+          for (let li = 1; li <= lc; li++) {
+            const t = li / (lc + 1);
+            const px = bezierPoint(0, len * 0.28, len * 0.68, len, t);
+            const py = bezierPoint(0, droopY * 0.06 * leafBend, droopY * (0.45 + leafBend * 0.34), droopY * (1 + leafBend * 0.26), t);
+            const middle = Math.pow(Math.sin(t * PI), 0.58); // fuller middle section
+            const sideLen = (wid * 1.52) * middle * (0.95 + Math.sin(li * 1.7 + fd.swayPhase) * 0.08);
+            const taper = (1 - t * 0.40);
+            const ll = sideLen * taper;
+            stroke(r * 0.66, g * 0.84, b * 0.60, aa * (0.45 + 0.35 * (1 - t)));
+            strokeWeight(max(1.65, persp * 2.10 * leafletThickness));
+            const flick = Math.sin(ft * ((fd.swayRate ?? 0.007) * 2.4) + fd.swayPhase + li * 0.22) * 0.08 * swayK;
+            const reach = ll * (1.08 + flick * 0.28);
+            const spread = ll * (0.32 + Math.abs(flick) * 0.10);
+            line(px, py, px + reach, py - spread);
+            line(px, py, px + reach, py + spread);
+          }
+          pop();
+        }
+      }
     }
 
   _drawPlantLabels() {
@@ -1231,7 +1577,10 @@ class Canopy {
       if (!this._bgLeafData.length) return;
       const season = this._seasonProfile();
       if (season.edgeAmount <= 0.01) return;
-      const lush = constrain(env.canopyEdgeLushness ?? 1.0, 0, 1.5);
+      const mix = this._chooseTreeMixProfile();
+      // Palm-dominant regions should have less generic dense edge foliage.
+      const palmEdgeReduce = 1 - constrain((mix.palm ?? 0) * 0.55, 0, 0.45);
+      const lush = constrain((env.canopyEdgeLushness ?? 1.0) * palmEdgeReduce, 0, 1.5);
       const lushNorm = constrain(lush / 1.0, 0, 1);
       const lushLive = lushNorm >= 0.995 ? 1.0 : Math.pow(lushNorm, 1.4);
       const lushTopBoost = Math.pow(constrain((lushNorm - 0.86) / 0.14, 0, 1), 1.15)
@@ -1359,6 +1708,7 @@ class Canopy {
     // ----------------------------------------------------------
   _drawBranchPoly(node) {
     const MD = this._maxDepth;
+      const tStyle = this._treeStyles?.[node.treeId] || { type: 'broadleaf', barkTone: 0 };
 
       const mx    = (node.startX + node.endX) * 0.5;
       const my    = (node.startY + node.endY) * 0.5;
@@ -1374,10 +1724,39 @@ class Canopy {
         const vd = 28 * (1 - flashK * 0.2);
         fr = vd + 4; fg = vd + 1; fb = vd - 3;
       }
+      if (tStyle.type === 'birch') {
+        if (isNight) {
+          fr = lerp(fr, 32, 0.35);
+          fg = lerp(fg, 32, 0.35);
+          fb = lerp(fb, 34, 0.35);
+        } else {
+          fr = 196 + (tStyle.barkTone ?? 0) * 0.4;
+          fg = 192 + (tStyle.barkTone ?? 0) * 0.3;
+          fb = 186 + (tStyle.barkTone ?? 0) * 0.35;
+        }
+      } else if (tStyle.type === 'dead') {
+        const deadBase = isNight ? 26 : 78;
+        fr = deadBase + (tStyle.barkTone ?? 0) * 0.25;
+        fg = deadBase - 8 + (tStyle.barkTone ?? 0) * 0.18;
+        fb = deadBase - 12 + (tStyle.barkTone ?? 0) * 0.14;
+      } else if (tStyle.type === 'conifer') {
+        fr *= 0.82; fg *= 0.86; fb *= 0.80;
+      } else if (tStyle.type === 'palm') {
+        fr = isNight ? 28 : 98;
+        fg = isNight ? 24 : 86;
+        fb = isNight ? 20 : 74;
+      }
 
       // Width at skeleton base and tip — continuous with children.
-      const wStart = lerp(2.0, 24, Math.pow(node.depth / MD, 1.2)) * persp;
-      const wEnd   = lerp(2.0, 24, Math.pow(Math.max(0, node.depth - 1) / MD, 1.2)) * persp;
+      let wStart = lerp(2.0, 24, Math.pow(node.depth / MD, 1.2)) * persp;
+      let wEnd   = lerp(2.0, 24, Math.pow(Math.max(0, node.depth - 1) / MD, 1.2)) * persp;
+      const trunkWk = tStyle.type === 'palm' && node.trunkLevel > 0 ? 0.42 : 1.0;
+      if (tStyle.type === 'palm') {
+        const depthK = constrain(node.depth / Math.max(1, MD), 0, 1);
+        // Thicker overall with stronger base taper.
+        wStart = lerp(16.5, 24.5, depthK) * persp;
+        wEnd = wStart * 0.52;
+      }
 
       // Sample bezier skeleton into evenly-spaced points.
       const STEPS = 8;
@@ -1389,7 +1768,7 @@ class Canopy {
         pts.push({
           x: mt*mt*startX + 2*mt*t*sagX + t*t*endX,
           y: mt*mt*startY + 2*mt*t*sagY + t*t*endY,
-          w: lerp(wStart, wEnd, t) * 0.5, // half-width for offset
+          w: lerp(wStart, wEnd, t) * 0.5 * trunkWk, // half-width for offset
         });
       }
 
@@ -1429,6 +1808,31 @@ class Canopy {
       // Weld cap at the branch joint to hide tiny gaps from angular changes.
       const joinR = Math.max(0.45, wEnd * 0.36);
       circle(node.endX, node.endY, joinR * 2);
+
+      if (tStyle.type === 'palm') {
+        // Palm trunk ring texture bands.
+        const rings = 10;
+        stroke((fr + 16), (fg + 10), (fb + 6), isNight ? 70 : 90);
+        strokeWeight(max(0.6, persp * 0.95));
+        noFill();
+        for (let ri = 1; ri < rings; ri++) {
+          const t = ri / rings;
+          const mt = 1 - t;
+          const rx = mt * mt * startX + 2 * mt * t * sagX + t * t * endX;
+          const ry = mt * mt * startY + 2 * mt * t * sagY + t * t * endY;
+          const prevT = max(0, t - 0.04);
+          const pmt = 1 - prevT;
+          const px = pmt * pmt * startX + 2 * pmt * prevT * sagX + prevT * prevT * endX;
+          const py = pmt * pmt * startY + 2 * pmt * prevT * sagY + prevT * prevT * endY;
+          const tx = rx - px;
+          const ty = ry - py;
+          const tl = Math.sqrt(tx * tx + ty * ty) || 1;
+          const nx = -ty / tl;
+          const ny = tx / tl;
+          const hw = lerp(wStart, wEnd, t) * 0.62;
+          line(rx + nx * hw, ry + ny * hw, rx - nx * hw, ry - ny * hw);
+        }
+      }
 
       for (const c of node.children) this._drawBranchPoly(c);
     }
@@ -1536,6 +1940,7 @@ class Canopy {
 
   _drawLeavesNode(g, node, br, bg, bb, ba,
                   isNight, isTwilight, sun, flashK, ft, step, occluders, hasOcc, layer, season) {
+    const tStyle = this._treeStyles?.[node.treeId] || { type: 'broadleaf', foliageMul: 1, leafSizeMul: 1, seasonOffset: 0 };
 
     // Simple on-screen check for branch bounding box
     const margin = 180; // tighter guard band cuts offscreen leaf work
@@ -1551,7 +1956,24 @@ class Canopy {
       const my       = (node.startY + node.endY) * 0.5;
       const persp    = this._perspectiveScale(mx, my);
       const edgeLush = this._edgeLushFactor(mx, my);
-      const foliageLive = constrain((env.treeFoliageMass ?? 0.35) * (season.leafAmount ?? 1), 0, 1);
+      if (tStyle.type === 'palm' && !node.palmFrond) {
+        for (const c of node.children) {
+          this._drawLeavesNode(g, c, br, bg, bb, ba,
+            isNight, isTwilight, sun, flashK, ft, step, occluders, hasOcc, layer, season);
+        }
+        return;
+      }
+
+      const dRaw = env.liveDateISO ? new Date(env.liveDateISO) : new Date();
+      const dOk = Number.isFinite(dRaw.getTime()) ? dRaw : new Date();
+      const doy = this._dayOfYear(dOk);
+      const localSeasonMul = tStyle.type === 'birch'
+        ? constrain((season.leafAmount ?? 1) + Math.sin(doy * 0.045 + (tStyle.seasonOffset ?? 0) * 8) * 0.12, 0, 1)
+        : (tStyle.type === 'conifer'
+          ? Math.max(0.92, season.leafAmount ?? 1)
+          : (season.leafAmount ?? 1));
+      const foliageSpeciesMul = tStyle.foliageMul ?? 1;
+      const foliageLive = constrain((env.treeFoliageMass ?? 0.35) * localSeasonMul * foliageSpeciesMul, 0, 1);
       // Make low slider values much lighter (e.g. 0.25 should not look dense).
       const foliageResponse = foliageLive >= 0.995 ? 1.0 : Math.pow(foliageLive, 1.85);
       const foliageGate = foliageResponse >= 0.995 ? 1.001 : foliageResponse;
@@ -1633,6 +2055,19 @@ class Canopy {
           lg = lerp(lg, wg, mix);
           lb = lerp(lb, wb, mix * 0.95);
         }
+        if (tStyle.type === 'conifer') {
+          lr *= 0.74; lg *= 0.88; lb *= 0.72;
+        } else if (tStyle.type === 'birch') {
+          lr = lerp(lr, 152, 0.12);
+          lg = lerp(lg, 170, 0.10);
+          lb = lerp(lb, 92, 0.08);
+        } else if (tStyle.type === 'dead') {
+          lr *= 0.58; lg *= 0.54; lb *= 0.52;
+        } else if (tStyle.type === 'palm') {
+          lr = lerp(lr, 48, 0.24);
+          lg = lerp(lg, 112, 0.26);
+          lb = lerp(lb, 34, 0.18);
+        }
 
         if (isNight) {
           // Clamp night leaves to solid dark tones and strong opacity.
@@ -1651,7 +2086,10 @@ class Canopy {
         const fx = px + sx + bx;
         const fy = py + sy + by;
         const localGrow = Math.pow(growK, 0.82);
-        const sizeK = lerp(0.72, 1.24, foliageDensityK) * lerp(0.40, 1.0, localGrow) * (season.leafSize ?? 1);
+        const sizeK = lerp(0.72, 1.24, foliageDensityK)
+          * lerp(0.40, 1.0, localGrow)
+          * (season.leafSize ?? 1)
+          * (tStyle.leafSizeMul ?? 1);
         const wMain = lf.lw * persp * sizeK;
         const hMain = lf.lh * persp * sizeK;
         // Keep clumps attached to branch frame; branch drives leaf grouping.
@@ -1666,8 +2104,12 @@ class Canopy {
         const jointPull = lf.jointBias ? 0.34 : 0.18;
         const cxp = fx + cosBa * along * jointPull + cosPa * side * 0.22;
         const cyp = fy + sinBa * along * jointPull + sinPa * side * 0.22;
-        const rx = Math.max(3, (wMain * (0.72 + lf.lobeMix * 0.52)) * 0.5);
-        const ry = Math.max(3, (hMain * (0.78 + lf.lobeMix * 0.48)) * 0.5);
+        let rx = Math.max(3, (wMain * (0.72 + lf.lobeMix * 0.52)) * 0.5);
+        let ry = Math.max(3, (hMain * (0.78 + lf.lobeMix * 0.48)) * 0.5);
+        if (tStyle.type === 'conifer') {
+          rx *= 0.74;
+          ry *= 0.54;
+        }
         const alphaGrow = lerp(0.22, 1.0, Math.pow(growK, 0.75));
         const alphaBaseRaw = la * layerAlpha * lf.alphaMul * lerp(0.38, 1.52, foliageDensityK) * alphaGrow;
         const minAlpha = isNight
@@ -1711,6 +2153,19 @@ class Canopy {
         g.curveVertex(pts[1][0], pts[1][1]);
         g.endShape(CLOSE);
         g.pop();
+
+        if (tStyle.type === 'conifer') {
+          // Needle sprays to make conifers visually distinct at projection scale.
+          g.push();
+          g.stroke(lr * 0.7, lg * 0.85, lb * 0.68, aBase * 0.48);
+          g.strokeWeight(Math.max(0.5, persp * 0.8));
+          for (let ns = 0; ns < 4; ns++) {
+            const na = ba + (ns - 1.5) * 0.22 + lf.skew * 0.15;
+            const nl = rx * (0.55 + ns * 0.12);
+            g.line(cxp, cyp, cxp + Math.cos(na) * nl, cyp + Math.sin(na) * nl * 0.72);
+          }
+          g.pop();
+        }
 
         // Occasional overlapping sibling clump.
         const overlapFull = foliageResponse > 0.93 && (lf.seed % 1) > 0.56;

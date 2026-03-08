@@ -21,6 +21,7 @@ socket.on('env:sync', (state) => {
   const prevTreeCount = env.treeFrameDensity;
   const prevDepth = env.branchDepth;
   const prevTreeless = !!env.forceTreeless;
+  const prevForceTreeType = String(env.forceTreeType || '');
   const prevConst = !!env.showConstellations;
   const prevConstLabels = !!env.showConstellationLabels;
   const prevPlantLabels = !!env.showPlantLabels;
@@ -32,6 +33,9 @@ socket.on('env:sync', (state) => {
     window._ncvUpdateTreeCount && _ncvUpdateTreeCount();
   }
   if (prevDepth !== env.branchDepth) {
+    window._ncvRebuildCanopy && _ncvRebuildCanopy();
+  }
+  if (prevForceTreeType !== String(env.forceTreeType || '')) {
     window._ncvRebuildCanopy && _ncvRebuildCanopy();
   }
   if (prevTreeless !== !!env.forceTreeless) {
@@ -116,6 +120,7 @@ const EnvironmentManager = {
   showConstellations: false,
   showConstellationLabels: false,
   showPlantLabels: false,
+  forceTreeType: '',
   forceTreeless: false,
   cloudCover: 0.28, // 0–1
   skyBlur: 1.0, // 0–6 px blur for moon halo/cloud softness
@@ -176,6 +181,7 @@ const EnvironmentManager = {
       showConstellations: this.showConstellations,
       showConstellationLabels: this.showConstellationLabels,
       showPlantLabels: this.showPlantLabels,
+      forceTreeType: this.forceTreeType,
       forceTreeless: this.forceTreeless,
       cloudCover: this.cloudCover,
       skyBlur: this.skyBlur,
@@ -216,8 +222,8 @@ const env = EnvironmentManager;
 // ----------------------------------------------------------
 // Globals — subsystems
 // ----------------------------------------------------------
-let starField, canopy, flock, atmosphere, murmuration;
-let showDebug = true;
+let starField, canopy, flock, atmosphere, murmuration, gooseMigration;
+let showDebug = false;
 let projectionEdgeMask = null;
 const locationTransition = {
   active: false,
@@ -260,6 +266,7 @@ function setup() {
 
   starField    = new StarField();
   murmuration  = new MurmurationSystem();
+  gooseMigration = new GooseMigrationSystem();
   atmosphere   = new AtmosphereSystem();
   window.atmosphere = atmosphere;
 
@@ -299,12 +306,14 @@ function draw() {
 
   // --- Update phase ---
   murmuration.update();  // distant background flocks
+  gooseMigration.update();
   canopy.update();       // must precede flock.update() — provides perchNodes
   flock.update();
   window._ncvBirdOccluders = flock.getOccluders();
 
   // --- Render phase (back → front) ---
   murmuration.draw();    // distant flocks in open sky, behind everything
+  gooseMigration.draw(); // seasonal migration V-formations
   flock.drawBackLayer(); // perching birds partially behind foliage
   canopy.draw();         // branches + leaves
   flock.drawFrontLayer();// birds/bats in front
