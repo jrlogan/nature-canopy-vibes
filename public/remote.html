@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Nature Canopy Remote</title>
+  <title>Canopy QR Remote</title>
   <style>
     :root {
       --bg: #09131c;
@@ -11,8 +11,8 @@
       --text: #ecf6ff;
       --muted: #9bb6cc;
       --accent: #49b5ff;
-      --accent-2: #58c783;
-      --danger: #f26e5d;
+      --accent2: #58c783;
+      --active: #76e2a3;
     }
 
     * { box-sizing: border-box; }
@@ -26,14 +26,14 @@
     }
 
     .wrap {
-      max-width: 560px;
+      max-width: 640px;
       margin: 0 auto;
       padding: 20px 16px 28px;
     }
 
     h1 {
       margin: 0 0 10px;
-      font-size: 1.4rem;
+      font-size: 1.25rem;
       letter-spacing: 0.02em;
     }
 
@@ -51,15 +51,24 @@
       backdrop-filter: blur(6px);
     }
 
-    .buttons {
+    .section-title {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .row {
       display: grid;
-      gap: 12px;
       grid-template-columns: 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
     }
 
     button {
       width: 100%;
-      min-height: 64px;
+      min-height: 52px;
       border: 0;
       border-radius: 12px;
       color: #fff;
@@ -68,35 +77,79 @@
       letter-spacing: 0.01em;
       padding: 12px;
       touch-action: manipulation;
+      background: linear-gradient(120deg, #26425d, #1a3047);
+      border: 1px solid rgba(156, 203, 241, 0.26);
     }
 
     button:active { transform: translateY(1px); }
-
-    #btn-storm { background: linear-gradient(120deg, #8e5cf7, #4f7bff); }
-    #btn-clear { background: linear-gradient(120deg, #27804f, var(--accent-2)); }
-    #btn-day { background: linear-gradient(120deg, #f7b84f, #e98d3b); }
-    #btn-night { background: linear-gradient(120deg, #203245, var(--accent)); }
-
     .log {
       margin-top: 14px;
       min-height: 22px;
       color: var(--muted);
       font-size: 0.9rem;
     }
+
+    .city-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .city-btn {
+      min-height: 48px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border-radius: 10px;
+      background: linear-gradient(120deg, #21364c, #1a2d41);
+    }
+    .city-btn.active {
+      border-color: rgba(118, 226, 163, 0.9);
+      color: #e9fff0;
+      box-shadow: 0 0 0 1px rgba(118, 226, 163, 0.4) inset;
+    }
+    .single-btn-row {
+      margin-top: 6px;
+    }
+    #btn-sky-labels.on {
+      border-color: rgba(118, 226, 163, 0.9);
+      color: #e9fff0;
+      box-shadow: 0 0 0 1px rgba(118, 226, 163, 0.4) inset;
+    }
+
+    @media (max-width: 520px) {
+      .city-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
   </style>
 </head>
 <body>
   <main class="wrap">
-    <h1>Nature Canopy Remote</h1>
+    <h1>Canopy QR Remote</h1>
     <p id="status" class="status">Connecting…</p>
 
     <section class="panel">
-      <div class="buttons">
-        <button id="btn-storm" type="button">Trigger Storm</button>
-        <button id="btn-clear" type="button">Clear Weather</button>
-        <button id="btn-day" type="button">Day Mode</button>
-        <button id="btn-night" type="button">Night Mode</button>
+      <div class="row">
+        <p class="section-title">Location</p>
+        <div class="city-grid">
+          <button class="city-btn" data-lat="41.3083" data-lon="-72.9279" data-name="New Haven, CT, USA" type="button">New Haven, USA</button>
+          <button class="city-btn" data-lat="34.0522" data-lon="-118.2437" data-name="Los Angeles, CA, USA" type="button">Los Angeles, USA</button>
+          <button class="city-btn" data-lat="61.2181" data-lon="-149.9003" data-name="Anchorage, AK, USA" type="button">Anchorage, USA</button>
+          <button class="city-btn" data-lat="21.3069" data-lon="-157.8583" data-name="Honolulu, HI, USA" type="button">Honolulu, USA</button>
+          <button class="city-btn" data-lat="25.0330" data-lon="121.5654" data-name="Taipei, Taiwan" type="button">Taipei, Taiwan</button>
+          <button class="city-btn" data-lat="38.7223" data-lon="-9.1393" data-name="Lisbon, Portugal" type="button">Lisbon, Portugal</button>
+          <button class="city-btn" data-lat="-12.0464" data-lon="-77.0428" data-name="Lima, Peru" type="button">Lima, Peru</button>
+          <button class="city-btn" data-lat="-33.9249" data-lon="18.4241" data-name="Cape Town, South Africa" type="button">Cape Town, South Africa</button>
+          <button class="city-btn" data-lat="-33.8688" data-lon="151.2093" data-name="Sydney, Australia" type="button">Sydney, Australia</button>
+          <button class="city-btn" data-lat="35.6762" data-lon="139.6503" data-name="Tokyo, Japan" type="button">Tokyo, Japan</button>
+          <button class="city-btn" data-lat="69.6492" data-lon="18.9553" data-name="Tromso, Norway" type="button">Tromso, Norway</button>
+          <button class="city-btn" data-lat="89.9" data-lon="135.0" data-name="North Pole Station" type="button">North Pole Station</button>
+        </div>
+        <div class="single-btn-row">
+          <button id="btn-sky-labels" type="button">Constellations & Labels: OFF</button>
+        </div>
       </div>
+
       <div id="log" class="log"></div>
     </section>
   </main>

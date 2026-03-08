@@ -39,15 +39,121 @@ class Canopy {
       amp: 0,
       width: 180,
     };
+    this._plantNames = ['Oak', 'Maple', 'Birch', 'Beech', 'Pine', 'Cedar', 'Willow', 'Aspen'];
     this._build();
   }
 
   get _maxDepth() { return Math.round(constrain(env.branchDepth, 3, 5)); }
   _treeSkyOpen()      { return constrain(env.treeSkyOpen ?? 1.0, 1.0, 1.5); }
-  _treeFrameDensity() { return constrain(env.treeFrameDensity ?? 0.5, 0, 1); }
+  _treeFrameDensity() { return constrain(env.treeFrameDensity ?? 10, 4, 16); }
   _treeFoliageMass()  { return constrain(env.treeFoliageMass ?? 0.45, 0, 1); }
   _treeBranchReach()  { return constrain(env.treeBranchReach ?? 0.45, 0, 1); }
   _treeBranchChaos()  { return constrain(env.treeBranchChaos ?? 0.52, 0, 1); }
+  _smoothstep(a, b, x) {
+    if (b <= a) return x >= b ? 1 : 0;
+    const t = constrain((x - a) / (b - a), 0, 1);
+    return t * t * (3 - 2 * t);
+  }
+  _dayOfYear(dt) {
+    const start = new Date(dt.getFullYear(), 0, 0);
+    return Math.floor((dt - start) / 86400000);
+  }
+  _autoSeasonState() {
+    const dRaw = env.liveDateISO ? new Date(env.liveDateISO) : new Date();
+    const d = Number.isFinite(dRaw.getTime()) ? dRaw : new Date();
+    const lat = Number(env.liveLocationLat);
+    const hasLat = Number.isFinite(lat);
+    const absLat = hasLat ? Math.abs(lat) : 0;
+    const hemiSouth = hasLat && lat < 0;
+
+    // Convert SH day-of-year into NH equivalent so one phenology curve works for both hemispheres.
+    let doyN = this._dayOfYear(d);
+    if (hemiSouth) {
+      doyN += 182;
+      while (doyN > 365) doyN -= 365;
+    }
+
+    // Latitude-aware phenology:
+    //  - tropical/subtropical: evergreen
+    //  - mild temperate: mostly evergreen with modest seasonal dip
+    //  - cold temperate/boreal: strong leaf-off winter
+    if (absLat <= 24) {
+      return { key: 'tropical', leafK: 1.0, absLat };
+    }
+
+    let springStart, springFull, fallStart, fallBare;
+    if (absLat < 40) {
+      springStart = 58 + absLat * 0.55;
+      springFull  = springStart + 34;
+      fallStart   = 258 + absLat * 0.10;
+      fallBare    = fallStart + 48;
+    } else if (absLat < 50) {
+      springStart = 56 + absLat * 0.75;
+      springFull  = springStart + 46;
+      fallStart   = 246 + absLat * 0.20;
+      fallBare    = fallStart + 52;
+    } else {
+      springStart = 56 + absLat * 0.95;   // Seattle/Anchorage-like delay
+      springFull  = springStart + (62 - absLat * 0.32);
+      fallStart   = 236 + absLat * 0.28;
+      fallBare    = fallStart + (58 - absLat * 0.20);
+    }
+
+    const springK = this._smoothstep(springStart, springFull, doyN);
+    const fallK   = this._smoothstep(fallStart, fallBare, doyN);
+    let leafK   = constrain(springK * (1 - fallK), 0, 1);
+    if (absLat < 40) leafK = Math.max(0.72, leafK);
+    else if (absLat < 50) leafK = Math.max(0.42, leafK);
+
+    let key = 'winter';
+    if (leafK <= 0.08) key = 'winter';
+    else if (springK < 0.96) key = 'spring';
+    else if (doyN >= 212 && doyN < fallStart) key = 'late_summer';
+    else if (doyN >= fallStart && leafK < 0.98) key = 'fall';
+    else key = 'summer';
+
+    return { key, leafK, absLat };
+  }
+  _seasonKey() {
+    const s = (env.season || 'auto').toLowerCase();
+    if (s === 'spring' || s === 'summer' || s === 'fall' || s === 'winter') return s;
+    const lat = Number(env.liveLocationLat);
+    if (Number.isFinite(lat) && Math.abs(lat) <= 18) return 'tropical';
+    return this._autoSeasonState().key;
+  }
+  _seasonProfile() {
+    const seasonMode = (env.season || 'auto').toLowerCase();
+    const autoState = seasonMode === 'auto' ? this._autoSeasonState() : null;
+    const k = autoState ? autoState.key : this._seasonKey();
+    if (k === 'tropical') {
+      return { key: 'tropical', leafAmount: 1.0, leafSize: 0.98, edgeAmount: 1.0, cR: 0.88, cG: 1.10, cB: 0.86, edgeTone: 'summer' };
+    }
+    if (k === 'winter') {
+      return { key: 'winter', leafAmount: 0.0, leafSize: 0.52, edgeAmount: 0.04, cR: 0.52, cG: 0.52, cB: 0.58, edgeTone: 'winter' };
+    }
+    if (k === 'spring') {
+      return { key: 'spring', leafAmount: 0.78, leafSize: 0.78, edgeAmount: 0.70, cR: 0.96, cG: 1.08, cB: 0.88, edgeTone: 'spring' };
+    }
+    if (k === 'fall') {
+      return { key: 'fall', leafAmount: 0.68, leafSize: 0.92, edgeAmount: 0.76, cR: 1.18, cG: 0.82, cB: 0.54, edgeTone: 'fall' };
+    }
+    if (k === 'late_summer') {
+      return { key: 'late_summer', leafAmount: 1.0, leafSize: 1.0, edgeAmount: 1.0, cR: 0.86, cG: 1.14, cB: 0.82, edgeTone: 'late_summer' };
+    }
+    const base = { key: 'summer', leafAmount: 1.0, leafSize: 1.0, edgeAmount: 0.96, cR: 0.92, cG: 1.06, cB: 0.90, edgeTone: 'summer' };
+
+    // In auto mode, apply phenology ramp so seasonal changes are gradual.
+    if (autoState) {
+      const lk = constrain(autoState.leafK, 0, 1);
+      base.leafAmount = lk < 0.08 ? 0 : Math.pow(lk, 0.92);
+      base.edgeAmount = lerp(0.10, base.edgeAmount, Math.pow(lk, 0.9));
+      if (k === 'spring') base.leafSize = lerp(0.58, 0.90, lk);
+      if (k === 'fall') base.leafSize = lerp(1.00, 0.78, 1 - lk);
+      if (k === 'winter') base.leafSize = 0.52;
+      base.key = k;
+    }
+    return base;
+  }
 
   // ----------------------------------------------------------
   // Build — perimeter-rooted layers to preserve "looking up" feel:
@@ -81,7 +187,7 @@ class Canopy {
     for (const cfg of roots) {
       const lenMult   = lerp(0.65, 1.15, reach) * cfg.layerLen;
       const len       = h * 0.25 * lenMult;
-      const edgeBoost = 1 + constrain(env.canopyEdgeLushness ?? 0.75, 0, 1) * cfg.edgeAffinity * 1.35;
+      const edgeBoost = 1 + constrain(env.canopyEdgeLushness ?? 1.0, 0, 1.5) * cfg.edgeAffinity * 1.35;
       const root      = this._makeNode(cfg.a, len, this._maxDepth, edgeBoost, {
         treeId: cfg.treeId,
         trunkLevel: cfg.trunkLevel,
@@ -90,6 +196,7 @@ class Canopy {
         fanSpan: cfg.fanSpan,
         splitBias: cfg.splitBias,
       });
+      root.plantName = random(this._plantNames);
       root.originX    = cfg.x;
       root.originY    = cfg.y;
       // Hero trees (trunkLevel >= 2) get an early shoulder for richer structure.
@@ -212,13 +319,14 @@ class Canopy {
     };
 
     const len       = height * 0.25 * lerp(0.65, 1.15, reach) * cfg.layerLen;
-    const edgeBoost = 1 + constrain(env.canopyEdgeLushness ?? 0.75, 0, 1) * cfg.edgeAffinity * 1.35;
+    const edgeBoost = 1 + constrain(env.canopyEdgeLushness ?? 1.0, 0, 1.5) * cfg.edgeAffinity * 1.35;
 
     const root = this._makeNode(cfg.a, len, this._maxDepth, edgeBoost, {
       treeId: cfg.treeId, trunkLevel: cfg.trunkLevel,
       meanderBase: cfg.meanderBase, fanCenter: cfg.fanCenter,
       fanSpan: cfg.fanSpan, splitBias: cfg.splitBias,
     });
+    root.plantName = random(this._plantNames);
     root.originX = cfg.x;
     root.originY = cfg.y;
     this._populate(root);
@@ -472,6 +580,8 @@ class Canopy {
         polyRot:   Math.random() * TWO_PI,
         alphaMul:  0.80 + Math.random() * 0.35,
         densityGate: 0.04 + Math.random() * 0.96,
+        appearAt: Math.random() * 0.96,
+        growSpan: 0.16 + Math.random() * 0.22,
         overlap:   Math.random() < 0.22,
         overlapDX: (Math.random() - 0.5) * 0.9,
         overlapDY: (Math.random() - 0.5) * 0.9,
@@ -538,8 +648,9 @@ class Canopy {
     if (node.depth <= 0) return;
     const MD   = this._maxDepth;
     const branchChaos = this._treeBranchChaos();
-    const minS = lerp(0.10, 0.34, branchChaos);
-    const maxS = lerp(0.28, 0.90, branchChaos); // broader angular spread for stronger chaos response
+    const chaosWide = Math.pow(branchChaos, 1.25);
+    const minS = lerp(0.10, 0.44, chaosWide);
+    const maxS = lerp(0.28, 1.18, chaosWide); // stronger high-end chaos spread
 
     const isTrunk = node.trunkLevel > 0;
     const depthFromRoot = MD - node.depth;
@@ -573,7 +684,7 @@ class Canopy {
     // Irregular side branching: trunks always emit at least one side limb.
     const splitChance = isTrunk
       ? 1.0
-      : (node.depth >= 2 ? lerp(0.40, 0.90, branchChaos) : lerp(0.18, 0.36, branchChaos));
+      : (node.depth >= 2 ? lerp(0.42, 0.96, chaosWide) : lerp(0.18, 0.44, chaosWide));
     if (Math.random() < splitChance) {
       const trunkAlternator = ((MD - node.depth) % 2 === 0) ? 1 : -1;
       const signBase = isTrunk ? trunkAlternator * node.splitBias : (Math.random() < 0.70 ? node.splitBias : -node.splitBias);
@@ -599,8 +710,8 @@ class Canopy {
         },
       ));
 
-      if ((isTrunk && node.trunkLevel >= 2 && Math.random() < 0.55) ||
-          (!isTrunk && node.depth >= 3 && Math.random() < (0.28 + branchChaos * 0.22))) {
+      if ((isTrunk && node.trunkLevel >= 2 && Math.random() < lerp(0.46, 0.76, chaosWide)) ||
+          (!isTrunk && node.depth >= 3 && Math.random() < lerp(0.24, 0.64, chaosWide))) {
         const s2 = minS + Math.random() * (maxS - minS) * 0.85;
         const lenB = node.len * (isTrunk ? (0.48 + Math.random() * 0.28) : (0.35 + Math.random() * 0.35));
         node.children.push(this._makeNode(
@@ -615,6 +726,27 @@ class Canopy {
             fanCenter: node.fanCenter - sign * node.fanSpan * 0.18,
             fanSpan: node.fanSpan * 0.78,
             splitBias: node.splitBias,
+          },
+        ));
+      }
+
+      // Very high chaos gets occasional extra branch for richer, wider structure.
+      if (!isTrunk && node.depth >= 2 && chaosWide > 0.72 && Math.random() < (chaosWide - 0.64) * 0.55) {
+        const sign3 = Math.random() < 0.5 ? -1 : 1;
+        const s3 = minS + Math.random() * (maxS - minS);
+        const lenC = node.len * (0.28 + Math.random() * 0.28);
+        node.children.push(this._makeNode(
+          node.baseAngle + sign3 * s3 + (Math.random() - 0.5) * 0.28,
+          lenC,
+          node.depth - 1,
+          node.leafBoost * (0.78 + Math.random() * 0.10),
+          {
+            treeId: node.treeId,
+            trunkLevel: 0,
+            meanderBase: node.meanderBase * 0.66,
+            fanCenter: node.fanCenter + sign3 * node.fanSpan * 0.42 + (Math.random() - 0.5) * 0.4,
+            fanSpan: node.fanSpan * 0.74,
+            splitBias: -node.splitBias,
           },
         ));
       }
@@ -646,6 +778,8 @@ class Canopy {
         polyRot: Math.random() * TWO_PI,
         alphaMul: 0.90 + Math.random() * 0.22,
         densityGate: 0.04 + Math.random() * 0.96,
+        appearAt: Math.random() * 0.96,
+        growSpan: 0.14 + Math.random() * 0.20,
         overlap: Math.random() < 0.14,
         overlapDX: (Math.random() - 0.5) * 0.7,
         overlapDY: (Math.random() - 0.5) * 0.7,
@@ -800,6 +934,10 @@ class Canopy {
     // update() — must run before draw() and before flock.update()
     // ----------------------------------------------------------
   update() {
+    if (env.forceTreeless) {
+      this.perchNodes = [];
+      return;
+    }
     // Runtime length multiplier — lets sky-open and branch-reach sliders
     // adjust tree geometry without a rebuild:
     //   Sky open ↑  → openScale  < 1 → trees recede toward edges (shorter, center opens up)
@@ -860,16 +998,26 @@ class Canopy {
       return g.amp * envelope;
     }
 
-    _updateNode(node, sx, sy, t) {
+  _updateNode(node, sx, sy, t) {
     node.startX = sx;
     node.startY = sy;
 
-    const depthFactor = 1 + (this._maxDepth - node.depth) * 0.28;
+    const depthFromRoot = this._maxDepth - node.depth;
+    const depthFactor = 1 + depthFromRoot * 0.28;
+    // Stiffness model:
+    // - Bigger lower/trunk branches resist wind/gust motion.
+    // - Smaller outer branches flex more.
+    const baseLen = node.baseLen ?? node.len ?? 0;
+    const stiffLenK = constrain(map(baseLen, 0, height * 0.34, 0.08, 1.0), 0.08, 1.0);
+    const trunkK = node.trunkLevel > 0 ? constrain(0.58 + node.trunkLevel * 0.12, 0.58, 0.90) : 1.0;
+    const depthFlexK = constrain(map(depthFromRoot, 0, this._maxDepth, 0.82, 1.40), 0.82, 1.40);
+    const stiffness = constrain(stiffLenK * trunkK, 0.08, 1.0);
+    const flexK = constrain((1.02 - stiffness) * depthFlexK, 0.14, 1.55);
     const windAmp = (env.windSpeed * 0.28 +
                     (env.currentWeather === 'storm' ? env.windSpeed * 0.22 : 0))
-                    * depthFactor;
+                    * depthFactor * flexK;
     const sway  = (noise(node.noisePhase * 0.28, t) - 0.5) * 2 * windAmp;
-    const gust = this._gustStrengthAtX(sx) * depthFactor;
+    const gust = this._gustStrengthAtX(sx) * depthFactor * lerp(0.45, 1.12, flexK);
     const gustSway = Math.sin(t * 2.8 + node.noisePhase * 0.22) * gust;
     const droop = node.dropFactor * (this._maxDepth - node.depth) * 0.055;
 
@@ -918,12 +1066,14 @@ class Canopy {
     }
 
     _edgeLushFactor(x, y) {
-    const lush    = constrain(env.canopyEdgeLushness ?? 0.75, 0, 1);
+    const lush    = constrain(env.canopyEdgeLushness ?? 1.0, 0, 1.5);
     const edgeDist = Math.min(x, width - x, y, height - y);
     const tRaw    = 1 - constrain(edgeDist / (min(width, height) * 0.18), 0, 1);
     const t       = Math.pow(tRaw, 1.5);
-    const lushK   = Math.pow(lush, 1.35);
-    const topBoost = Math.pow(constrain((lush - 0.88) / 0.12, 0, 1), 1.2);
+    const lushNorm = constrain(lush / 1.0, 0, 1);
+    const lushK   = Math.pow(lushNorm, 1.35);
+    const topBoost = Math.pow(constrain((lushNorm - 0.88) / 0.12, 0, 1), 1.2)
+      + Math.pow(constrain((lush - 1.0) / 0.5, 0, 1), 1.15) * 0.8;
     return 1 + lushK * t * (0.48 + topBoost * 0.24);
     }
 
@@ -954,10 +1104,36 @@ class Canopy {
     // so they taper seamlessly through joints with no stroke-cap artefacts.
     // ----------------------------------------------------------
     draw() {
+      if (env.forceTreeless) return;
       this._drawBgLeaves();      // leafed-in background behind everything
       this._drawLeafPass('back');
       for (const root of this.trees) this._drawBranchPoly(root);
       this._drawLeafPass('front');
+      this._drawPlantLabels();
+    }
+
+  _drawPlantLabels() {
+      if (!env.showPlantLabels) return;
+      push();
+      textAlign(CENTER, CENTER);
+      textSize(constrain(min(width, height) * 0.020, 16, 30));
+      noStroke();
+      for (const root of this.trees) {
+        if (!root || !root.plantName) continue;
+        const towardCx = width * 0.5 - root.originX;
+        const towardCy = height * 0.5 - root.originY;
+        const d = Math.sqrt(towardCx * towardCx + towardCy * towardCy) || 1;
+        const ux = towardCx / d;
+        const uy = towardCy / d;
+        const px = root.originX + ux * 44;
+        const py = root.originY + uy * 44;
+        if (this._centerVoidFactor(px, py) < 0.12) continue;
+        fill(8, 16, 12, 170);
+        text(root.plantName, px + 2.0, py + 2.0);
+        fill(206, 236, 214, 170);
+        text(root.plantName, px, py);
+      }
+      pop();
     }
 
     // ----------------------------------------------------------
@@ -1053,37 +1229,48 @@ class Canopy {
 
   _drawBgLeaves() {
       if (!this._bgLeafData.length) return;
-      const lush = constrain(env.canopyEdgeLushness ?? 0.75, 0, 1);
-      const lushLive = lush >= 0.995 ? 1.0 : Math.pow(lush, 1.4);
-      const lushTopBoost = Math.pow(constrain((lush - 0.86) / 0.14, 0, 1), 1.15);
+      const season = this._seasonProfile();
+      if (season.edgeAmount <= 0.01) return;
+      const lush = constrain(env.canopyEdgeLushness ?? 1.0, 0, 1.5);
+      const lushNorm = constrain(lush / 1.0, 0, 1);
+      const lushLive = lushNorm >= 0.995 ? 1.0 : Math.pow(lushNorm, 1.4);
+      const lushTopBoost = Math.pow(constrain((lushNorm - 0.86) / 0.14, 0, 1), 1.15)
+        + Math.pow(constrain((lush - 1.0) / 0.5, 0, 1), 1.10) * 0.75;
       const lushVisual = lushLive * (1 + lushTopBoost * 0.32);
       const tod        = env.timeOfDay;
       const isNight    = tod < 6.5 || tod > 20.5;
       const isTwilight = (tod >= 5.5 && tod < 7) || (tod > 19 && tod < 21);
+      const isDawn     = tod < 13;
       const sun        = (!isNight && !isTwilight) ? (1 - Math.abs(tod - 13) / 7) : 0;
       const flashK     = constrain((window._ncvFlashAlpha || 0) / 255, 0, 1);
 
-      // Slightly darker/cooler than foreground leaves — reads as "behind".
+      // Same base palette as tree leaves, slightly darkened so edge reads as behind.
       let br, bg, bb;
       if (isNight) {
-        br = 2;  bg = 7;  bb = 3;
+        br = 3; bg = 8; bb = 4;
       } else if (isTwilight) {
-        const frac = tod < 13 ? (tod - 5.5) / 1.5 : (21 - tod) / 2;
-        br = Math.floor(lerp(10, 32, frac));
-        bg = Math.floor(lerp(20, 52, frac));
-        bb = Math.floor(lerp(5, 14, frac));
+        const frac = isDawn ? (tod - 5.5) / 1.5 : (21 - tod) / 2;
+        br = lerp(132, 42, frac);
+        bg = lerp(104, 82, frac);
+        bb = lerp(34, 18, frac);
       } else {
-        br = Math.floor(14 + sun * 12);
-        bg = Math.floor(44 + sun * 28);
-        bb = Math.floor(8  + sun * 6);
+        br = 24 + sun * 22;
+        bg = 68 + sun * 46;
+        bb = 12 + sun * 8;
       }
 
       // Quantized key prevents per-frame cache churn while preserving smooth updates.
       const todBucket = Math.round(tod * 5) / 5; // 0.2h buckets
+      br = br * season.cR * (isNight ? 0.68 : 0.74);
+      bg = bg * season.cG * (isNight ? 0.72 : 0.78);
+      bb = bb * season.cB * (isNight ? 0.70 : 0.76);
+
       const key = [
         width, height,
         (Math.round(lushLive * 100) / 100).toFixed(2),
         (Math.round(lushVisual * 100) / 100).toFixed(2),
+        season.key,
+        season.edgeAmount.toFixed(2),
         todBucket.toFixed(1),
         isNight ? 1 : 0,
         isTwilight ? 1 : 0,
@@ -1102,10 +1289,34 @@ class Canopy {
           const edgeK = Math.pow(constrain(lf.edgeBias ?? 1, 0, 1), 1.25);
           if (edgeK < 0.12) continue;
 
-          const r = Math.max(0, Math.min(255, br + lf.cr));
-          const g = Math.max(0, Math.min(255, bg + lf.cg));
-          const b = Math.max(0, Math.min(255, bb + lf.cb));
-          const a = (lf.baseA * (isNight ? 0.90 : 0.82) * lushVisual * edgeK).toFixed(3);
+          let r = Math.max(0, Math.min(255, br + lf.cr));
+          let g = Math.max(0, Math.min(255, bg + lf.cg));
+          let b = Math.max(0, Math.min(255, bb + lf.cb));
+
+          // Seasonal tint is intentionally subtle so edge mostly matches tree leaves.
+          if (season.edgeTone === 'fall') {
+            const warmT = constrain((Math.sin((lf.x * 0.013 + lf.y * 0.011 + lf.rot * 2.1)) + 1) * 0.5, 0, 1);
+            const fr = lerp(164, 216, warmT);
+            const fg = lerp(66, 146, warmT);
+            const fb = lerp(16, 44, warmT);
+            r = lerp(r, fr, 0.34);
+            g = lerp(g, fg, 0.34);
+            b = lerp(b, fb, 0.30);
+          } else if (season.edgeTone === 'spring') {
+            r = lerp(r, 170, 0.08);
+            g = lerp(g, 210, 0.12);
+            b = lerp(b, 120, 0.08);
+          } else if (season.edgeTone === 'late_summer') {
+            r = lerp(r, 78, 0.07);
+            g = lerp(g, 122, 0.16);
+            b = lerp(b, 66, 0.07);
+          } else if (season.edgeTone === 'winter') {
+            r = lerp(r, 86, 0.12);
+            g = lerp(g, 90, 0.13);
+            b = lerp(b, 98, 0.14);
+          }
+
+          const a = (lf.baseA * (isNight ? 0.90 : 0.82) * lushVisual * edgeK * season.edgeAmount).toFixed(3);
 
           gdc.fillStyle = `rgba(${r},${g},${b},${a})`;
           gdc.save();
@@ -1226,7 +1437,7 @@ class Canopy {
     // buffer, then composites at full size. The bilinear upscaling
     // provides a natural canopy softness without per-leaf blur cost.
     // ----------------------------------------------------------
-    _drawLeafPass(layer = 'front') {
+  _drawLeafPass(layer = 'front') {
     const q = constrain(window._ncvQualityScale ?? 1, 0.45, 1);
 
     // Dynamic resolution based on quality scale — 70% down to 35%
@@ -1251,6 +1462,7 @@ class Canopy {
 
     // Time-of-day state — identical for every leaf this frame.
     const tod        = env.timeOfDay;
+    const season     = this._seasonProfile();
     const isNight    = tod < 6.5 || tod > 20.5;
     const isTwilight = (tod >= 5.5 && tod < 7) || (tod > 19 && tod < 21);
     const isDawn     = tod < 13;
@@ -1288,6 +1500,7 @@ class Canopy {
       bb = 12 + sun * 8;
       ba = 200;
     }
+    br *= season.cR; bg *= season.cG; bb *= season.cB;
 
     g.push();
     g.scale(resScale);
@@ -1302,7 +1515,7 @@ class Canopy {
 
     for (const root of this.trees) {
       this._drawLeavesNode(g, root, br, bg, bb, ba,
-        isNight, isTwilight, sun, flashK, ft, step, occluders, hasOcc, layer);
+        isNight, isTwilight, sun, flashK, ft, step, occluders, hasOcc, layer, season);
     }
 
     g.pop();
@@ -1322,7 +1535,7 @@ class Canopy {
     }
 
   _drawLeavesNode(g, node, br, bg, bb, ba,
-                  isNight, isTwilight, sun, flashK, ft, step, occluders, hasOcc, layer) {
+                  isNight, isTwilight, sun, flashK, ft, step, occluders, hasOcc, layer, season) {
 
     // Simple on-screen check for branch bounding box
     const margin = 180; // tighter guard band cuts offscreen leaf work
@@ -1338,7 +1551,7 @@ class Canopy {
       const my       = (node.startY + node.endY) * 0.5;
       const persp    = this._perspectiveScale(mx, my);
       const edgeLush = this._edgeLushFactor(mx, my);
-      const foliageLive = constrain(env.treeFoliageMass ?? 0.35, 0, 1);
+      const foliageLive = constrain((env.treeFoliageMass ?? 0.35) * (season.leafAmount ?? 1), 0, 1);
       // Make low slider values much lighter (e.g. 0.25 should not look dense).
       const foliageResponse = foliageLive >= 0.995 ? 1.0 : Math.pow(foliageLive, 1.85);
       const foliageGate = foliageResponse >= 0.995 ? 1.001 : foliageResponse;
@@ -1361,7 +1574,10 @@ class Canopy {
 
       for (let i = 0; i < node.leaves.length; i += step) {
         const lf = node.leaves[i];
-        if ((lf.densityGate ?? 0.5) > foliageGate) continue;
+        const appearAt = lf.appearAt ?? lf.densityGate ?? 0.5;
+        const growSpan = Math.max(0.06, lf.growSpan ?? 0.20);
+        const growK = constrain((foliageResponse - appearAt) / growSpan, 0, 1);
+        if (growK <= 0) continue;
         if (lf.layer !== layer) continue;
 
         // Quadratic Bezier interpolation for correct attachment to curved branch.
@@ -1406,6 +1622,18 @@ class Canopy {
           la = (ba - lf.ca) * escA;
         }
 
+        // Fall palette: stable per-clump warm mix (amber/orange/rust).
+        if (season.key === 'fall' && !isNight) {
+          const warmT = constrain(0.25 + ((Math.sin((lf.seed ?? 0) * 0.0017) + 1) * 0.5) * 0.75, 0, 1);
+          const wr = lerp(170, 212, warmT);
+          const wg = lerp(72, 142, warmT);
+          const wb = lerp(18, 42, warmT);
+          const mix = isTwilight ? 0.45 : 0.70;
+          lr = lerp(lr, wr, mix);
+          lg = lerp(lg, wg, mix);
+          lb = lerp(lb, wb, mix * 0.95);
+        }
+
         if (isNight) {
           // Clamp night leaves to solid dark tones and strong opacity.
           lr = Math.min(lr, 8);
@@ -1422,7 +1650,8 @@ class Canopy {
 
         const fx = px + sx + bx;
         const fy = py + sy + by;
-        const sizeK = lerp(0.72, 1.24, foliageDensityK);
+        const localGrow = Math.pow(growK, 0.82);
+        const sizeK = lerp(0.72, 1.24, foliageDensityK) * lerp(0.40, 1.0, localGrow) * (season.leafSize ?? 1);
         const wMain = lf.lw * persp * sizeK;
         const hMain = lf.lh * persp * sizeK;
         // Keep clumps attached to branch frame; branch drives leaf grouping.
@@ -1439,19 +1668,20 @@ class Canopy {
         const cyp = fy + sinBa * along * jointPull + sinPa * side * 0.22;
         const rx = Math.max(3, (wMain * (0.72 + lf.lobeMix * 0.52)) * 0.5);
         const ry = Math.max(3, (hMain * (0.78 + lf.lobeMix * 0.48)) * 0.5);
-        const alphaBaseRaw = la * layerAlpha * lf.alphaMul * lerp(0.38, 1.52, foliageDensityK);
+        const alphaGrow = lerp(0.22, 1.0, Math.pow(growK, 0.75));
+        const alphaBaseRaw = la * layerAlpha * lf.alphaMul * lerp(0.38, 1.52, foliageDensityK) * alphaGrow;
         const minAlpha = isNight
-          ? lerp(84, 182, foliageDensityK)
-          : lerp(38, 108, foliageDensityK);
+          ? lerp(34, lerp(84, 182, foliageDensityK), alphaGrow)
+          : lerp(14, lerp(38, 108, foliageDensityK), alphaGrow);
         const bigLeafK = constrain(((rx * ry) - 120) / 680, 0, 1);
         const bigLeafFloor = isNight
-          ? (lerp(90, 188, foliageDensityK) + bigLeafK * 30)
-          : (lerp(42, 112, foliageDensityK) + bigLeafK * 72);
+          ? (lerp(24, lerp(90, 188, foliageDensityK), alphaGrow) + bigLeafK * 30 * alphaGrow)
+          : (lerp(10, lerp(42, 112, foliageDensityK), alphaGrow) + bigLeafK * 72 * alphaGrow);
         const aBase = Math.min(255, Math.max(alphaBaseRaw, minAlpha, bigLeafFloor));
 
         // Thin connector twig keeps clump visually attached to supporting branch.
         if (lf.stem) {
-          const stemA = aBase * (layer === 'back' ? 0.26 : 0.34);
+          const stemA = aBase * (layer === 'back' ? 0.26 : 0.34) * lerp(0.45, 1, localGrow);
           const stemW = Math.max(0.7, Math.min(2.0, 0.55 + persp * 0.65));
           g.push();
           g.stroke(28, 46, 20, stemA);
@@ -1484,7 +1714,7 @@ class Canopy {
 
         // Occasional overlapping sibling clump.
         const overlapFull = foliageResponse > 0.93 && (lf.seed % 1) > 0.56;
-        if (lf.overlap || overlapFull) {
+        if ((lf.overlap || overlapFull) && growK >= 0.72) {
           const ovSway = Math.sin(ft * (0.0011 + lf.swaySpd * 0.35) + lf.phase) * 0.18;
           const ox = cxp + cosBa * rx * (lf.overlapDX + ovSway) + cosPa * ry * lf.overlapDY;
           const oy = cyp + sinBa * rx * (lf.overlapDX + ovSway) + sinPa * ry * lf.overlapDY;
@@ -1536,7 +1766,7 @@ class Canopy {
     // don't cull their on-screen descendants.
     for (const c of node.children) {
       this._drawLeavesNode(g, c, br, bg, bb, ba,
-        isNight, isTwilight, sun, flashK, ft, step, occluders, hasOcc, layer);
+        isNight, isTwilight, sun, flashK, ft, step, occluders, hasOcc, layer, season);
     }
   }
 }

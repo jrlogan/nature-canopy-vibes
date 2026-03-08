@@ -8,13 +8,14 @@
 //   • Perlin twinkling + shadowBlur glow for bright stars
 // ============================================================
 
-// Global toggle — set by controls.js
+// Global toggle fallback — set by controls.js
 window._ncvShowConstellations = false;
 
 class StarField {
   constructor() {
-    this.lat      = 45;       // observer latitude (°N)
-    this.baseLST  = 342;     // LST at midnight ~2026-03-07 in degrees
+    this.lat      = env.liveLocationLat ?? 41.3083;   // observer latitude (°N)
+    this.lon      = env.liveLocationLon ?? -72.9279;  // observer longitude (°E positive)
+    this.baseLST  = 342;
     this.nightThreshold = { start: 20.5, end: 6.5 };
     this.wasNight = null;
     this.cacheDirty = true;
@@ -83,6 +84,53 @@ class StarField {
 
   invalidateCache() {
     this.cacheDirty = true;
+  }
+
+  _syncObserverFromEnv() {
+    const lat = Number(env.liveLocationLat);
+    const lon = Number(env.liveLocationLon);
+    const nextLat = Number.isFinite(lat) ? lat : this.lat;
+    const nextLon = Number.isFinite(lon) ? lon : this.lon;
+    if (Math.abs(nextLat - this.lat) > 0.35) {
+      this.lat = nextLat;
+      this.lon = nextLon;
+      this.nameMap = {};
+      this.stars = this._buildStars();
+      this.cacheDirty = true;
+      return;
+    }
+    if (Math.abs(nextLon - this.lon) > 0.35) {
+      this.lon = nextLon;
+      this.cacheDirty = true;
+    }
+  }
+
+  _dateAtEnvTime() {
+    const base = env.liveDateISO ? new Date(env.liveDateISO) : new Date();
+    const d = Number.isFinite(base.getTime()) ? new Date(base.getTime()) : new Date();
+    const hour = env.timeOfDay ?? 0;
+    const h = Math.floor(hour);
+    const m = Math.floor((hour - h) * 60);
+    const s = Math.floor((((hour - h) * 60) - m) * 60);
+    d.setHours(h, m, s, 0);
+    return d;
+  }
+
+  _julianDay(dateObj) {
+    return dateObj.getTime() / 86400000 + 2440587.5;
+  }
+
+  _normDeg(v) {
+    return ((v % 360) + 360) % 360;
+  }
+
+  _localSiderealDeg(jd, lonDeg) {
+    const T = (jd - 2451545.0) / 36525.0;
+    const gmst = 280.46061837
+      + 360.98564736629 * (jd - 2451545.0)
+      + 0.000387933 * T * T
+      - (T * T * T) / 38710000;
+    return this._normDeg(gmst + lonDeg);
   }
 
   // ----------------------------------------------------------
@@ -279,7 +327,11 @@ class StarField {
     };
   }
 
-  _getLST()    { return (this.baseLST + env.timeOfDay * 15) % 360; }
+  _getLST() {
+    const now = this._dateAtEnvTime();
+    const jd = this._julianDay(now);
+    return this._localSiderealDeg(jd, this.lon ?? 0);
+  }
 
   _starAlpha() {
     const t = env.timeOfDay;
@@ -357,28 +409,50 @@ class StarField {
   }
 
   // ----------------------------------------------------------
-  // Constellation lines (No labels)
+  // Constellation lines + optional labels
   // ----------------------------------------------------------
   _drawConstellations(gfx, alpha) {
-    if (!window._ncvShowConstellations || alpha < 0.05) return;
+    const showConstellations = !!(env.showConstellations ?? window._ncvShowConstellations);
+    if (!showConstellations || alpha < 0.05) return;
     const cMul = constrain(env.constellationBrightness ?? 1, 0, 2);
+    const showLabels = !!env.showConstellationLabels;
 
-    // Much brighter, clearer lines (higher base opacity + glow)
     gfx.stroke(200, 230, 255, 180 * alpha * cMul);
     gfx.strokeWeight(1.4);
     gfx.noFill();
 
     for (const [consName, lines] of Object.entries(this.constellations)) {
+      const labelPts = [];
       for (const [nameA, nameB] of lines) {
         const sA = this.nameMap[nameA];
         const sB = this.nameMap[nameB];
         if (!sA || !sB || !sA.visible || !sB.visible) continue;
 
         gfx.line(sA.sx, sA.sy, sB.sx, sB.sy);
+        if (showLabels) {
+          labelPts.push([sA.sx, sA.sy], [sB.sx, sB.sy]);
+        }
+      }
+      if (showLabels && labelPts.length >= 4) {
+        let sx = 0;
+        let sy = 0;
+        for (const p of labelPts) {
+          sx += p[0];
+          sy += p[1];
+        }
+        const cx = sx / labelPts.length;
+        const cy = sy / labelPts.length;
+        gfx.push();
+        gfx.textAlign(CENTER, CENTER);
+        gfx.textSize(constrain(min(width, height) * 0.020, 16, 30));
+        gfx.noStroke();
+        gfx.fill(8, 16, 22, 180 * alpha * cMul);
+        gfx.text(consName, cx + 2.0, cy + 2.0);
+        gfx.fill(206, 228, 255, 210 * alpha * cMul);
+        gfx.text(consName, cx, cy);
+        gfx.pop();
       }
     }
-    
-    // Names and labels removed as requested.
   }
 
   isNight() {
@@ -386,11 +460,13 @@ class StarField {
   }
 
   updateCache() {
+    this._syncObserverFromEnv();
     const nowNight = this.isNight();
     const configStamp = [
       (env.starBrightness ?? 1).toFixed(2),
       (env.constellationBrightness ?? 1).toFixed(2),
-      window._ncvShowConstellations ? '1' : '0',
+      (env.showConstellations ?? window._ncvShowConstellations) ? '1' : '0',
+      env.showConstellationLabels ? '1' : '0',
     ].join('|');
     if (this.wasNight === null) this.wasNight = nowNight;
     if (configStamp !== this.lastConfigStamp) {

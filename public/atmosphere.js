@@ -16,6 +16,7 @@ class AtmosphereSystem {
     this.audio = new AtmosphereAudio();
     this._cloudCoreBuf = null;
     this._cloudWispBuf = null;
+    this.aurora = { active: false, alpha: 0, target: 0, nextCheckAt: 0, hueShift: random(1000) };
     this._seedClouds();
   }
 
@@ -66,8 +67,39 @@ class AtmosphereSystem {
     }
 
     this._updateLightning();
+    this._updateAurora();
     window._ncvFlashAlpha = this.flashAlpha;
     this.audio.update();
+  }
+
+  _updateAurora() {
+    const lat = Math.abs(Number(env.liveLocationLat));
+    const isPolar = Number.isFinite(lat) && lat >= 56;
+    const t = env.timeOfDay ?? 12;
+    const isNight = t < 6.5 || t > 20.5;
+    const cloud = constrain(env.cloudCover ?? 0.28, 0, 1);
+    const weatherOk = env.currentWeather !== 'storm';
+    const visibleCond = isPolar && isNight && weatherOk && cloud < 0.62;
+    const now = millis();
+
+    if (!visibleCond) {
+      this.aurora.active = false;
+      this.aurora.target = 0;
+      this.aurora.alpha = max(0, this.aurora.alpha - 2.4);
+      return;
+    }
+
+    if (now >= this.aurora.nextCheckAt) {
+      const latK = constrain((lat - 56) / 16, 0, 1);
+      const activityChance = 0.26 + latK * 0.46;
+      this.aurora.active = random() < activityChance;
+      this.aurora.target = this.aurora.active ? random(34, 118) : random(0, 22);
+      this.aurora.nextCheckAt = now + random(14000, 36000);
+    }
+
+    const speed = this.aurora.target > this.aurora.alpha ? 0.8 : 0.45;
+    this.aurora.alpha = lerp(this.aurora.alpha, this.aurora.target, speed * 0.035);
+    this.aurora.hueShift += 0.003 + (env.windSpeed ?? 0.2) * 0.004;
   }
 
   _updateLightning() {
@@ -192,6 +224,7 @@ class AtmosphereSystem {
   drawSky() {
     this._drawTwilightGradient();
     this._drawOvercastWash();
+    this._drawAurora();
     this._drawSunAndMoon();
     this._drawClouds();
     this._drawDistantFlash();
@@ -201,6 +234,45 @@ class AtmosphereSystem {
 
   drawOverlay() {
     // No post-foreground wash: we want trees to stay dark silhouettes.
+  }
+
+  _drawAurora() {
+    const a = this.aurora.alpha;
+    if (a <= 1) return;
+
+    const cloud = constrain(env.cloudCover ?? 0.28, 0, 1);
+    const vis = (1 - cloud * 0.8);
+    if (vis <= 0.08) return;
+    const alpha = a * vis;
+    const bands = 3;
+    const baseY = height * 0.18;
+
+    drawingContext.save();
+    drawingContext.globalCompositeOperation = 'screen';
+    for (let b = 0; b < bands; b++) {
+      const y = baseY + b * height * 0.09;
+      const amp = height * (0.06 + b * 0.01);
+      const phase = this.aurora.hueShift + b * 0.8;
+      const grad = drawingContext.createLinearGradient(0, y - amp, 0, y + amp * 1.4);
+      const g1 = Math.round(180 + 55 * Math.sin(phase * 0.7 + 0.2));
+      const b1 = Math.round(110 + 70 * Math.sin(phase * 0.9 + 1.1));
+      grad.addColorStop(0.00, `rgba(120,${g1},${b1},0)`);
+      grad.addColorStop(0.35, `rgba(100,${Math.min(255, g1 + 25)},${Math.max(80, b1 - 20)},${(alpha / 255 * 0.30).toFixed(3)})`);
+      grad.addColorStop(0.70, `rgba(90,${Math.min(255, g1 + 40)},${Math.max(70, b1 - 28)},${(alpha / 255 * 0.22).toFixed(3)})`);
+      grad.addColorStop(1.00, `rgba(80,150,110,0)`);
+      drawingContext.fillStyle = grad;
+
+      beginShape();
+      for (let x = -40; x <= width + 40; x += 24) {
+        const n = noise(x * 0.0022 + b * 0.71, frameCount * 0.0015 + phase);
+        const yy = y + (n - 0.5) * 2 * amp;
+        vertex(x, yy);
+      }
+      vertex(width + 40, y + amp * 1.9);
+      vertex(-40, y + amp * 1.9);
+      endShape(CLOSE);
+    }
+    drawingContext.restore();
   }
 
   // Radial twilight gradient: you are looking UP at the ceiling.
@@ -512,8 +584,8 @@ class AtmosphereSystem {
     const now = this._dateAtHour(hour);
     const jd = this._julianDay(now);
     const d = jd - 2451543.5; // days since 2000 Jan 0.0 (UT)
-    const latDeg = 41.31;     // New Haven latitude
-    const lonDeg = -72.93;    // New Haven longitude
+    const latDeg = Number.isFinite(Number(env.liveLocationLat)) ? Number(env.liveLocationLat) : 41.31;
+    const lonDeg = Number.isFinite(Number(env.liveLocationLon)) ? Number(env.liveLocationLon) : -72.93;
     const lstDeg = this._localSiderealDeg(jd, lonDeg);
     const cx = width * 0.5;
     const cy = height * 0.5;
@@ -570,7 +642,8 @@ class AtmosphereSystem {
   }
 
   _dateAtHour(hour) {
-    const d = new Date();
+    const base = env.liveDateISO ? new Date(env.liveDateISO) : new Date();
+    const d = Number.isFinite(base.getTime()) ? new Date(base.getTime()) : new Date();
     const h = Math.floor(hour);
     const m = Math.floor((hour - h) * 60);
     const s = Math.floor((((hour - h) * 60) - m) * 60);

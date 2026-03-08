@@ -359,7 +359,7 @@ class MurmurationSystem {
   triggerFlock() {
     const tod = env.timeOfDay;
     const isNight = tod < 6.5 || tod > 20.5;
-    if (isNight || env.currentWeather === 'storm') return;
+    if (isNight || env.currentWeather === 'storm' || this.swarms.length > 0) return;
     const swarm = new _MurmSwarm();
     swarm.distanceScale = this._assignDistanceScale();
     this.swarms.push(swarm);
@@ -374,8 +374,8 @@ class MurmurationSystem {
     const isActive = tod >= 6.2 && tod <= 20.5 && env.currentWeather !== 'storm' && !blockForCloud;
     const now      = millis();
 
-    // Up to 3 concurrent swarms at different apparent distances.
-    if (isActive && now >= this.nextSpawn && this.swarms.length < 3) {
+    // One active swarm at a time.
+    if (isActive && now >= this.nextSpawn && this.swarms.length < 1) {
       const swarm = new _MurmSwarm();
       swarm.distanceScale = this._assignDistanceScale();
       this.swarms.push(swarm);

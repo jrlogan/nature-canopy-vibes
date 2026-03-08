@@ -99,6 +99,17 @@
       border-color: rgba(80, 160, 255, 0.55);
     }
     .ncv-weather-row button:hover { background: rgba(80, 130, 200, 0.15); }
+    #ncv-panel select {
+      background: rgba(5, 12, 20, 0.92) !important;
+      color: #f5fbff !important;
+      border: 1px solid rgba(180, 220, 255, 0.62) !important;
+      font-size: 12px !important;
+      font-weight: 600;
+    }
+    #ncv-panel select option {
+      background: #0a1624;
+      color: #f5fbff;
+    }
     .ncv-depth-row {
       display: flex;
       gap: 6px;
@@ -218,21 +229,46 @@
         <span>City Preset</span>
       </div>
       <div class="ncv-weather-row">
-        <select id="ncv-city-select" style="flex:1;min-width:0;padding:4px 6px;background:rgba(255,255,255,.05);border:1px solid rgba(80,130,200,.3);border-radius:6px;color:#c8daf0;font-family:inherit;font-size:11px;">
+        <select id="ncv-city-select" style="flex:1;min-width:0;padding:4px 6px;border-radius:6px;font-family:inherit;">
           <option value="">Custom…</option>
-          <option value="New Haven, CT" data-match="new haven">New Haven, CT</option>
-          <option value="New York, NY" data-match="new york">New York, NY</option>
-          <option value="Chicago, IL" data-match="chicago">Chicago, IL</option>
-          <option value="Denver, CO" data-match="denver">Denver, CO</option>
-          <option value="Los Angeles, CA" data-match="los angeles">Los Angeles, CA</option>
-          <option value="Seattle, WA" data-match="seattle">Seattle, WA</option>
-          <option value="Miami, FL" data-match="miami">Miami, FL</option>
-          <option value="Anchorage, AK" data-match="anchorage">Anchorage, AK</option>
-          <option value="Honolulu, HI" data-match="honolulu">Honolulu, HI</option>
-          <option value="London, UK" data-match="london">London, UK</option>
-          <option value="Paris, France" data-match="paris">Paris, France</option>
-          <option value="Tokyo, JP" data-match="tokyo">Tokyo, JP</option>
-          <option value="Sydney, AU" data-match="sydney">Sydney, AU</option>
+          <option value="New Haven, CT" data-match="new haven" data-lat="41.3083" data-lon="-72.9279">New Haven, CT</option>
+          <option value="New York, NY" data-match="new york" data-lat="40.7128" data-lon="-74.0060">New York, NY</option>
+          <option value="Chicago, IL" data-match="chicago" data-lat="41.8781" data-lon="-87.6298">Chicago, IL</option>
+          <option value="Denver, CO" data-match="denver" data-lat="39.7392" data-lon="-104.9903">Denver, CO</option>
+          <option value="Los Angeles, CA" data-match="los angeles" data-lat="34.0522" data-lon="-118.2437">Los Angeles, CA</option>
+          <option value="Seattle, WA" data-match="seattle" data-lat="47.6062" data-lon="-122.3321">Seattle, WA</option>
+          <option value="Miami, FL" data-match="miami" data-lat="25.7617" data-lon="-80.1918">Miami, FL</option>
+          <option value="Anchorage, AK" data-match="anchorage" data-lat="61.2181" data-lon="-149.9003">Anchorage, AK</option>
+          <option value="Honolulu, HI" data-match="honolulu" data-lat="21.3069" data-lon="-157.8583">Honolulu, HI</option>
+          <option value="Reykjavik, Iceland" data-match="reykjavik" data-lat="64.1466" data-lon="-21.9426">Reykjavik, Iceland</option>
+          <option value="Tromso, Norway" data-match="tromso" data-lat="69.6492" data-lon="18.9553">Tromso, Norway</option>
+          <option value="London, United Kingdom" data-match="london" data-lat="51.5074" data-lon="-0.1278">London, United Kingdom</option>
+          <option value="Paris, France" data-match="paris" data-lat="48.8566" data-lon="2.3522">Paris, France</option>
+          <option value="Cape Town, South Africa" data-match="cape town" data-lat="-33.9249" data-lon="18.4241">Cape Town, South Africa</option>
+          <option value="Nairobi, Kenya" data-match="nairobi" data-lat="-1.2921" data-lon="36.8219">Nairobi, Kenya</option>
+          <option value="Lagos, Nigeria" data-match="lagos" data-lat="6.5244" data-lon="3.3792">Lagos, Nigeria</option>
+          <option value="Quito, Ecuador" data-match="quito" data-lat="-0.1807" data-lon="-78.4678">Quito, Ecuador</option>
+          <option value="Manaus, Brazil" data-match="manaus" data-lat="-3.1190" data-lon="-60.0217">Manaus, Brazil</option>
+          <option value="Santiago, Chile" data-match="santiago" data-lat="-33.4489" data-lon="-70.6693">Santiago, Chile</option>
+          <option value="Ushuaia, Argentina" data-match="ushuaia" data-lat="-54.8019" data-lon="-68.3030">Ushuaia, Argentina</option>
+          <option value="Singapore, Singapore" data-match="singapore" data-lat="1.3521" data-lon="103.8198">Singapore, Singapore</option>
+          <option value="Tokyo, Japan" data-match="tokyo" data-lat="35.6762" data-lon="139.6503">Tokyo, Japan</option>
+          <option value="Sydney, Australia" data-match="sydney" data-lat="-33.8688" data-lon="151.2093">Sydney, Australia</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="ncv-row">
+      <div class="ncv-label">
+        <span>Season</span>
+      </div>
+      <div class="ncv-weather-row">
+        <select id="ncv-season-select" style="flex:1;min-width:0;padding:4px 6px;border-radius:6px;font-family:inherit;">
+          <option value="auto">Auto</option>
+          <option value="spring">Spring</option>
+          <option value="summer">Summer</option>
+          <option value="fall">Fall</option>
+          <option value="winter">Winter</option>
         </select>
       </div>
     </div>
@@ -291,41 +327,41 @@
     <div class="ncv-row">
       <div class="ncv-label">
         <span>Sky Opening</span>
-        <span class="ncv-val" id="ncv-coverage-val">1.00</span>
+        <span class="ncv-val" id="ncv-coverage-val">1.10</span>
       </div>
-      <input type="range" id="ncv-coverage" min="1" max="1.5" step="0.05" value="1">
+      <input type="range" id="ncv-coverage" min="1" max="1.5" step="0.05" value="1.1">
     </div>
 
     <div class="ncv-row">
       <div class="ncv-label">
         <span>Tree Count</span>
-        <span class="ncv-val" id="ncv-tree-count-val">7</span>
+        <span class="ncv-val" id="ncv-tree-count-val">10</span>
       </div>
-      <input type="range" id="ncv-tree-count" min="4" max="16" step="1" value="7">
+      <input type="range" id="ncv-tree-count" min="4" max="16" step="1" value="10">
     </div>
 
     <div class="ncv-row">
       <div class="ncv-label">
         <span>Foliage Density</span>
-        <span class="ncv-val" id="ncv-density-val">0.35</span>
+        <span class="ncv-val" id="ncv-density-val">0.85</span>
       </div>
-      <input type="range" id="ncv-density" min="0" max="1" step="0.05" value="0.35">
+      <input type="range" id="ncv-density" min="0" max="1" step="0.05" value="0.85">
     </div>
 
     <div class="ncv-row">
       <div class="ncv-label">
         <span>Branch Length</span>
-        <span class="ncv-val" id="ncv-perspective-val">0.72</span>
+        <span class="ncv-val" id="ncv-perspective-val">0.40</span>
       </div>
-      <input type="range" id="ncv-perspective" min="0" max="1" step="0.05" value="0.72">
+      <input type="range" id="ncv-perspective" min="0" max="1" step="0.05" value="0.4">
     </div>
 
     <div class="ncv-row">
       <div class="ncv-label">
         <span>Edge Lushness</span>
-        <span class="ncv-val" id="ncv-edge-lush-val">0.75</span>
+        <span class="ncv-val" id="ncv-edge-lush-val">1.00</span>
       </div>
-      <input type="range" id="ncv-edge-lush" min="0" max="1" step="0.05" value="0.75">
+      <input type="range" id="ncv-edge-lush" min="0" max="1.5" step="0.05" value="1.0">
     </div>
 
     <div class="ncv-row">
@@ -340,8 +376,8 @@
       <div class="ncv-label"><span>Branch Depth</span></div>
       <div class="ncv-depth-row" id="ncv-depth-btns">
         <button data-d="3">Simple</button>
-        <button data-d="4" class="active">Layered</button>
-        <button data-d="5">Complex</button>
+        <button data-d="4">Layered</button>
+        <button data-d="5" class="active">Complex</button>
       </div>
     </div>
 
@@ -470,8 +506,10 @@
   const liveLocInput  = document.getElementById('ncv-live-loc-input');
   const liveLocApply  = document.getElementById('ncv-live-loc-apply');
   const citySelect    = document.getElementById('ncv-city-select');
+  const seasonSelect  = document.getElementById('ncv-season-select');
   const depthBtns     = document.querySelectorAll('[data-d]');
   const socketDot     = document.getElementById('ncv-socket-dot');
+  const constBtn      = document.getElementById('ncv-const-btn');
 
   // ----------------------------------------------------------
   // Helpers
@@ -562,17 +600,34 @@
     });
   });
 
-  liveLocApply.addEventListener('click', () => {
-    const q = liveLocInput.value.trim();
+  function emitLocationQuery(query) {
+    const q = String(query || '').trim();
     if (!q || typeof socket === 'undefined' || !socket.connected) return;
-    socket.emit('sim:setLocation', { query: q });
+    window._ncvBeginLocationTransition && _ncvBeginLocationTransition();
+    const opt = Array.from(citySelect.options).find(o => o.value && o.value.toLowerCase() === q.toLowerCase());
+    const lat = opt?.dataset?.lat ? parseFloat(opt.dataset.lat) : NaN;
+    const lon = opt?.dataset?.lon ? parseFloat(opt.dataset.lon) : NaN;
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      socket.emit('sim:setLocation', { query: q, lat, lon, name: opt.value });
+    } else {
+      socket.emit('sim:setLocation', { query: q });
+    }
+  }
+
+  liveLocApply.addEventListener('click', () => {
+    emitLocationQuery(liveLocInput.value);
   });
 
   citySelect.addEventListener('change', () => {
     const q = citySelect.value.trim();
-    if (!q || typeof socket === 'undefined' || !socket.connected) return;
+    if (!q) return;
     liveLocInput.value = q;
-    socket.emit('sim:setLocation', { query: q });
+    emitLocationQuery(q);
+  });
+
+  seasonSelect.addEventListener('change', () => {
+    env.season = seasonSelect.value || 'auto';
+    emitState();
   });
 
   if (typeof socket !== 'undefined') {
@@ -644,6 +699,20 @@
   depthBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       env.branchDepth = parseInt(btn.dataset.d, 10);
+      // Depth presets tuned for the requested starting looks.
+      if (env.branchDepth === 5) { // Complex
+        env.treeSkyOpen = 1.10;
+        env.treeFrameDensity = 10;
+        env.treeFoliageMass = 0.85;
+        env.treeBranchReach = 0.40;
+        env.canopyEdgeLushness = 1.0;
+      } else if (env.branchDepth === 4) { // Layered
+        env.treeSkyOpen = 1.20;
+        env.treeFrameDensity = 14;
+        env.treeFoliageMass = 0.70;
+      }
+      window._ncvUpdateTreeCount && _ncvUpdateTreeCount();
+      window._ncvSyncPanel && _ncvSyncPanel();
       depthBtns.forEach(b => b.classList.toggle('active', b === btn));
       scheduleTreeRebuild();
       emitState();
@@ -687,13 +756,15 @@
     window._ncvRandomise && _ncvRandomise();
   });
 
-  document.getElementById('ncv-const-btn').addEventListener('click', function () {
-    window._ncvShowConstellations = !window._ncvShowConstellations;
+  constBtn.addEventListener('click', function () {
+    env.showConstellations = !env.showConstellations;
+    window._ncvShowConstellations = !!env.showConstellations;
     this.textContent = window._ncvShowConstellations ? 'Constellations: ON' : 'Constellations: OFF';
     this.style.borderColor = window._ncvShowConstellations
       ? 'rgba(100, 160, 255, 0.6)' : '';
     this.style.color = window._ncvShowConstellations ? '#c8e8ff' : '';
     window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
+    emitState();
   });
 
   document.getElementById('ncv-debug-btn').addEventListener('click', function () {
@@ -738,14 +809,14 @@
 
     coverageSlider.value    = env.treeSkyOpen ?? 1.0;
     coverageVal.textContent = (env.treeSkyOpen ?? 1.0).toFixed(2);
-    treeCountSlider.value    = Math.round(env.treeFrameDensity ?? 7);
+    treeCountSlider.value    = Math.round(env.treeFrameDensity ?? 10);
     treeCountVal.textContent = treeCountSlider.value;
-    densitySlider.value     = env.treeFoliageMass ?? 0.35;
-    densityVal.textContent  = (env.treeFoliageMass ?? 0.35).toFixed(2);
-    perspectiveSlider.value = env.treeBranchReach ?? 0.45;
-    perspectiveVal.textContent = (env.treeBranchReach ?? 0.45).toFixed(2);
-    edgeLushSlider.value = env.canopyEdgeLushness ?? 0.75;
-    edgeLushVal.textContent = (env.canopyEdgeLushness ?? 0.75).toFixed(2);
+    densitySlider.value     = env.treeFoliageMass ?? 0.85;
+    densityVal.textContent  = (env.treeFoliageMass ?? 0.85).toFixed(2);
+    perspectiveSlider.value = env.treeBranchReach ?? 0.40;
+    perspectiveVal.textContent = (env.treeBranchReach ?? 0.40).toFixed(2);
+    edgeLushSlider.value = env.canopyEdgeLushness ?? 1.0;
+    edgeLushVal.textContent = (env.canopyEdgeLushness ?? 1.0).toFixed(2);
     spreadSlider.value      = env.treeBranchChaos ?? 0.52;
     spreadVal.textContent  = (env.treeBranchChaos ?? 0.52).toFixed(2);
     
@@ -756,7 +827,12 @@
     const loc = (env.liveLocationName || '').toLowerCase();
     const match = Array.from(citySelect.options).find(o => o.dataset.match && loc.includes(o.dataset.match));
     citySelect.value = match ? match.value : '';
+    seasonSelect.value = env.season || 'auto';
     depthBtns.forEach(b   => b.classList.toggle('active', parseInt(b.dataset.d) === env.branchDepth));
+    window._ncvShowConstellations = !!env.showConstellations;
+    constBtn.textContent = window._ncvShowConstellations ? 'Constellations: ON' : 'Constellations: OFF';
+    constBtn.style.borderColor = window._ncvShowConstellations ? 'rgba(100, 160, 255, 0.6)' : '';
+    constBtn.style.color = window._ncvShowConstellations ? '#c8e8ff' : '';
   };
 
   // ----------------------------------------------------------

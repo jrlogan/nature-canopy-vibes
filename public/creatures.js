@@ -15,27 +15,25 @@
 // Bat wing drawing (kept simple — erratic Perlin-steered flier)
 // ----------------------------------------------------------
 function _drawBatWings(span, flapAmt) {
-  const bw = span * 0.12;
-  noFill();
-  strokeWeight(1.4);
-  // Left membrane
-  beginShape();
-  vertex(-span,         flapAmt * 0.55);
-  vertex(-span * 0.62,  flapAmt * 0.05);
-  vertex(-span * 0.34, -flapAmt * 0.52);
-  vertex(-bw,           flapAmt * 0.12);
-  endShape();
-  // Right membrane
-  beginShape();
-  vertex(span,          flapAmt * 0.55);
-  vertex(span  * 0.62,  flapAmt * 0.05);
-  vertex(span  * 0.34, -flapAmt * 0.52);
-  vertex(bw,            flapAmt * 0.12);
-  endShape();
-  // Body
-  fill(20, 0, 30);
+  const s = span;
+  const wingSpan = s * 1.06;
+  const wingLift = s * 0.16 + flapAmt * 0.34;
   noStroke();
-  circle(0, 0, bw * 2.2);
+  // Underside silhouette with broad symmetric wings.
+  beginShape();
+  vertex(-wingSpan, 0);
+  quadraticVertex(-s * 0.80, -wingLift, -s * 0.34, -s * 0.10);
+  quadraticVertex(-s * 0.12,  s * 0.05, 0, 0);
+  quadraticVertex( s * 0.12,  s * 0.05, s * 0.34, -s * 0.10);
+  quadraticVertex( s * 0.80, -wingLift, wingSpan, 0);
+  quadraticVertex( s * 0.54,  s * 0.34, 0, s * 0.20);
+  quadraticVertex(-s * 0.54,  s * 0.34, -wingSpan, 0);
+  endShape(CLOSE);
+
+  // Body ridge + tail notch.
+  fill(16, 10, 18);
+  ellipse(0, 0, s * 0.28, s * 0.48);
+  triangle(0, s * 0.10, -s * 0.10, s * 0.28, s * 0.10, s * 0.28);
 }
 
 // ===========================================================
@@ -278,29 +276,44 @@ class Bird {
 // ===========================================================
 class Bat {
   constructor(opts = {}) {
-    this.mode      = opts.mode || 'wander';
+    this.mode      = opts.mode || 'hunt_pass';
     this.pos       = createVector(
       opts.x ?? random(width * 0.2, width * 0.8),
       opts.y ?? random(height * 0.2, height * 0.7),
     );
     this.vel       = createVector(opts.vx ?? 0, opts.vy ?? 0);
-    if (this.vel.magSq() < 0.1) this.vel = p5.Vector.random2D().mult(random(1.5, 3.5));
+    if (this.vel.magSq() < 0.1) this.vel = p5.Vector.random2D().mult(random(2.6, 4.8));
     this.flapPhase = random(TWO_PI);
     this.size      = opts.size ?? random(16, 28);
     this.noiseOff  = random(2000);
     this.noiseSpd  = random(0.018, 0.032);
     this.shouldRemove = false;
-    this.life = opts.life ?? floor(random(420, 920));
+    this.life = opts.life ?? floor(random(180, 420));
+    this.leader = opts.leader || null; // for commute followers
+    this.offset = opts.offset ? opts.offset.copy() : createVector(0, 0);
+    this.disperseAt = opts.disperseAt ?? floor(this.life * random(0.42, 0.68));
+    this.swoopAmp = opts.swoopAmp ?? random(8, 26);
+    this.swoopRate = opts.swoopRate ?? random(0.020, 0.048);
+    this.homeBandY = opts.homeBandY ?? random(height * 0.60, height * 0.88);
+    this.phaseJit = random(1000);
+    this.huntTarget = null;
+    this.huntHops = opts.huntHops ?? floor(random(2, 5));
   }
 
   update() {
-    if (this.mode === 'cross') {
-      const angle = noise(this.pos.x * 0.0024, this.pos.y * 0.0024,
-                          frameCount * this.noiseSpd + this.noiseOff) * TWO_PI * 2;
-      this.vel.add(p5.Vector.fromAngle(angle).mult(0.05)).limit(4.4);
+    if (this.mode === 'commute_lead') {
+      // Fast, low commute line at dusk/dawn with synchronized swoop.
+      const n = noise(this.pos.x * 0.0018, this.pos.y * 0.0018, frameCount * this.noiseSpd + this.noiseOff);
+      const angle = (n - 0.5) * 0.65;
+      this.vel.add(p5.Vector.fromAngle(angle).mult(0.08)).limit(6.0);
       this.pos.add(this.vel);
+      this.pos.y += sin(frameCount * this.swoopRate + this.phaseJit) * 0.7;
       this.flapPhase += 0.34;
       this.life--;
+      if (this.life <= this.disperseAt) {
+        this.mode = 'hunt_pass';
+        this.vel.limit(4.8);
+      }
       if (this.life <= 0 ||
           this.pos.x < -140 || this.pos.x > width + 140 ||
           this.pos.y < -140 || this.pos.y > height + 140) {
@@ -309,16 +322,83 @@ class Bat {
       return;
     }
 
-    const angle = noise(this.pos.x * 0.003, this.pos.y * 0.003,
-                        frameCount * this.noiseSpd + this.noiseOff) * TWO_PI * 3;
-    this.vel.add(p5.Vector.fromAngle(angle).mult(0.12)).limit(3.5);
-    this.pos.add(this.vel);
-    this.flapPhase += 0.28;
-    // Wrap
-    if (this.pos.x < -60)         this.pos.x = width  + 60;
-    if (this.pos.x > width  + 60) this.pos.x = -60;
-    if (this.pos.y < -60)         this.pos.y = height + 60;
-    if (this.pos.y > height + 60) this.pos.y = -60;
+    if (this.mode === 'commute_follow' && this.leader && !this.leader.shouldRemove) {
+      // Tight group cohesion around the commute leader.
+      const desired = p5.Vector.add(this.leader.pos, this.offset);
+      const to = p5.Vector.sub(desired, this.pos);
+      this.vel.add(to.mult(0.07));
+      this.vel.limit(6.2);
+      this.pos.add(this.vel);
+      this.pos.y += sin(frameCount * this.swoopRate + this.phaseJit) * 0.55;
+      this.flapPhase += 0.36;
+      this.life--;
+      if (this.life <= this.disperseAt) {
+        this.mode = 'hunt_pass';
+        this.leader = null;
+        this.vel.limit(4.8);
+      }
+      if (this.life <= 0 ||
+          this.pos.x < -170 || this.pos.x > width + 170 ||
+          this.pos.y < -170 || this.pos.y > height + 170) {
+        this.shouldRemove = true;
+      }
+      return;
+    }
+
+    if (this.mode === 'exit') {
+      this.pos.add(this.vel);
+      this.flapPhase += 0.40;
+      this.life--;
+      if (this.life <= 0 ||
+          this.pos.x < -170 || this.pos.x > width + 170 ||
+          this.pos.y < -170 || this.pos.y > height + 170) {
+        this.shouldRemove = true;
+      }
+      return;
+    }
+
+    // Hunt quickly between tree perches, then leave.
+    const pickHuntTarget = () => {
+      if (!canopy || !canopy.perchNodes || canopy.perchNodes.length === 0) return null;
+      // Favor mid/high canopy targets so low bats are less common.
+      const candidates = canopy.perchNodes.filter(p => p.y <= height * 0.76 && p.y >= height * 0.22);
+      if (!candidates.length) return random(canopy.perchNodes);
+      return random(candidates);
+    };
+
+    if (!this.huntTarget) this.huntTarget = pickHuntTarget();
+    if (this.huntTarget) {
+      const tgt = createVector(this.huntTarget.x, this.huntTarget.y);
+      const to = p5.Vector.sub(tgt, this.pos);
+      const d = to.mag();
+      if (d > 0.001) {
+        to.normalize().mult(0.58);
+        this.vel.add(to).limit(7.4);
+      }
+      this.pos.add(this.vel);
+      this.pos.y += sin(frameCount * this.swoopRate + this.phaseJit) * 0.6;
+      if (this.pos.y < height * 0.34) this.pos.y = lerp(this.pos.y, height * 0.40, 0.10);
+      if (this.pos.y > height * 0.86) this.pos.y = lerp(this.pos.y, height * 0.78, 0.16);
+      if (d < 42) {
+        this.huntHops--;
+        this.huntTarget = pickHuntTarget();
+      }
+    } else {
+      const angle = noise(this.pos.x * 0.0028, this.pos.y * 0.0028, frameCount * this.noiseSpd + this.noiseOff) * TWO_PI * 2;
+      this.vel.add(p5.Vector.fromAngle(angle).mult(0.14)).limit(6.5);
+      this.pos.add(this.vel);
+    }
+    this.flapPhase += 0.38;
+    this.life--;
+    if (this.huntHops <= 0 || this.life <= 0) {
+      const cx = width / 2;
+      const cy = height / 2;
+      const away = atan2(this.pos.y - cy, this.pos.x - cx) + random(-0.32, 0.32);
+      this.vel = p5.Vector.fromAngle(away).mult(random(6.6, 8.6));
+      this.mode = 'exit';
+      this.life = floor(random(70, 140));
+      this.huntTarget = null;
+    }
   }
 
   draw() {
@@ -332,8 +412,9 @@ class Bat {
     const flap = sin(this.flapPhase) * this.size * 0.5;
     push();
     translate(this.pos.x, this.pos.y);
-    rotate(atan2(this.vel.y, this.vel.x));
-    stroke(20, 0, 30, alpha);
+    // Keep bats in underside view (looking up): avoid side-profile heading rotation.
+    rotate(sin(frameCount * 0.011 + this.noiseOff) * 0.14);
+    fill(20, 0, 30, alpha);
     _drawBatWings(this.size, flap);
     pop();
   }
@@ -345,12 +426,12 @@ class Bat {
 class CreatureFlock {
   constructor() {
     this.birds = [];
-    this.bats  = Array.from({ length: 2 }, () => new Bat({ mode: 'wander' }));
+    this.bats  = [];
 
     // Timers in frames (@60 fps)
     this.flockInTimer = 30;                          // first flock arrives quickly
     this.spookTimer   = floor(random(28, 55) * 60);
-    this.batGroupTimer = floor(random(9, 17) * 60);
+    this.batGroupTimer = floor(random(6, 12) * 60);
   }
 
   // ----------------------------------------------------------
@@ -361,10 +442,12 @@ class CreatureFlock {
 
     const perched = this.birds.filter(b => b.state === 'PERCHED').length;
     const total   = this.birds.length;
+    const activeFlock = total > 0;
     const t = env.timeOfDay;
     const isNight = t < 6.5 || t > 20.5;
     const isSunset = t >= 17.4 && t <= 20.3;
-    const isEarlyNight = (t >= 20.5 && t <= 23.9) || (t >= 4.7 && t <= 6.3);
+    const isDusk = t >= 18.0 && t <= 20.9;
+    const isDawn = t >= 4.5 && t <= 6.7;
     const isStorm = env.currentWeather === 'storm';
     const cloudCover = constrain(env.cloudCover ?? 0.28, 0, 1);
     const blockFlocksForCloud = cloudCover >= 0.42;   // stop new arrivals before sky gets heavy
@@ -373,7 +456,7 @@ class CreatureFlock {
     // --- Flock-in event ---
     this.flockInTimer--;
     if (this.flockInTimer <= 0) {
-      if (!isNight && !isStorm && !blockFlocksForCloud && total < 5 && canopy && canopy.perchNodes.length > 0) {
+      if (!isNight && !isStorm && !blockFlocksForCloud && !activeFlock && canopy && canopy.perchNodes.length > 0) {
         this._triggerFlockIn();
       }
       // Schedule next flock-in whether or not this one fired
@@ -403,19 +486,29 @@ class CreatureFlock {
     for (const b of this.birds) b.update();
 
     // Bat population: grow at night, trim by day
-    const roamers = this.bats.filter(b => b.mode !== 'cross').length;
-    if (isNight && roamers < 4 && random() < 0.0023) this.bats.push(new Bat({ mode: 'wander' }));
-    if (!isNight && roamers > 2) {
-      const idx = this.bats.findIndex(b => b.mode !== 'cross');
+    const hunters = this.bats.filter(b => b.mode === 'hunt_pass').length;
+    if (isNight && hunters < 2 && random() < 0.0013) {
+      this.bats.push(new Bat({
+        mode: 'hunt_pass',
+        x: random(-80, width + 80),
+        y: random(height * 0.36, height * 0.74),
+        life: floor(random(170, 320)),
+        huntHops: floor(random(2, 4)),
+        size: random(13, 21),
+      }));
+    }
+    if (!isNight && hunters > 0) {
+      const idx = this.bats.findIndex(b => b.mode === 'hunt_pass');
       if (idx >= 0) this.bats.splice(idx, 1);
     }
 
     this.batGroupTimer--;
-    if (isEarlyNight && this.batGroupTimer <= 0) {
-      this._spawnBatGroup();
-      this.batGroupTimer = floor(random(8, 16) * 60);
-    } else if (!isEarlyNight && this.batGroupTimer <= 0) {
-      this.batGroupTimer = floor(random(18, 35) * 60);
+    const hasCommuteGroup = this.bats.some(b => b.mode === 'commute_lead' || b.mode === 'commute_follow');
+    if ((isDusk || isDawn) && this.batGroupTimer <= 0) {
+      if (!hasCommuteGroup) this._spawnBatCommuteGroup(isDawn ? 'inbound' : 'outbound');
+      this.batGroupTimer = floor(random(5, 10) * 60);
+    } else if (!(isDusk || isDawn) && this.batGroupTimer <= 0) {
+      this.batGroupTimer = floor(random(14, 28) * 60);
     }
 
     for (const b of this.bats) b.update();
@@ -426,31 +519,49 @@ class CreatureFlock {
     return random(20, 44);
   }
 
-  _spawnBatGroup() {
-    const count = floor(random(4, 10));
+  _spawnBatCommuteGroup(kind = 'outbound') {
+    const count = floor(random(8, 18));
     const fromLeft = random() < 0.5;
-    const sx = fromLeft ? -90 : width + 90;
-    const syBase = random(height * 0.20, height * 0.64);
-    const moon = window._ncvMoonState || { visible: false };
-    const targetX = moon.visible && random() < 0.68
-      ? moon.x + random(-26, 26)
-      : (fromLeft ? width + 80 : -80);
-    const targetY = moon.visible && random() < 0.68
-      ? moon.y + random(-20, 22)
-      : random(height * 0.18, height * 0.66);
+    const sx = fromLeft ? -120 : width + 120;
+    // Keep commute groups farther away (higher in frame) for distant-swarm feel.
+    const syBase = random(height * 0.30, height * 0.50);
+    const tx = fromLeft ? width + 120 : -120;
+    const ty = constrain(syBase + random(-28, 28), height * 0.24, height * 0.58);
+    const dir = createVector(tx - sx, ty - syBase).normalize().mult(random(5.2, 6.6));
+    const lifeBase = floor(random(240, 430));
 
-    for (let i = 0; i < count; i++) {
-      const px = sx + random(-28, 28);
-      const py = syBase + random(-34, 34);
-      const dir = createVector(targetX - px, targetY - py).normalize().mult(random(2.3, 4.1));
+    const leader = new Bat({
+      mode: 'commute_lead',
+      x: sx + random(-10, 10),
+      y: syBase + random(-8, 8),
+      vx: dir.x,
+      vy: dir.y,
+      size: random(12, 18),
+      life: lifeBase,
+      disperseAt: floor(lifeBase * (kind === 'outbound' ? random(0.52, 0.74) : random(0.38, 0.60))),
+      swoopAmp: random(10, 22),
+      swoopRate: random(0.024, 0.042),
+    });
+    this.bats.push(leader);
+
+    for (let i = 0; i < count - 1; i++) {
+      const ring = Math.floor(i / 4) + 1;
+      const slot = i % 4;
+      const ox = (slot < 2 ? -1 : 1) * ring * random(8, 16);
+      const oy = (slot % 2 === 0 ? -1 : 1) * ring * random(6, 12);
       this.bats.push(new Bat({
-        mode: 'cross',
-        x: px,
-        y: py,
-        vx: dir.x + random(-0.45, 0.45),
-        vy: dir.y + random(-0.45, 0.45),
-        size: random(18, 30),
-        life: floor(random(320, 640)),
+        mode: 'commute_follow',
+        x: leader.pos.x + ox + random(-4, 4),
+        y: leader.pos.y + oy + random(-4, 4),
+        vx: dir.x + random(-0.35, 0.35),
+        vy: dir.y + random(-0.35, 0.35),
+        size: random(10, 16),
+        life: lifeBase + floor(random(-40, 60)),
+        disperseAt: leader.disperseAt + floor(random(-40, 60)),
+        leader,
+        offset: createVector(ox, oy),
+        swoopAmp: random(8, 18),
+        swoopRate: random(0.022, 0.040),
       }));
     }
   }

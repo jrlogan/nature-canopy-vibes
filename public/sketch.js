@@ -17,7 +17,39 @@ socket.on('disconnect', () => {
   window._ncvSetSocketStatus && _ncvSetSocketStatus(false);
 });
 socket.on('env:sync', (state) => {
+  if (!window._ncvDidFirstSync) window._ncvDidFirstSync = false;
+  const prevTreeCount = env.treeFrameDensity;
+  const prevDepth = env.branchDepth;
+  const prevTreeless = !!env.forceTreeless;
+  const prevConst = !!env.showConstellations;
+  const prevConstLabels = !!env.showConstellationLabels;
+  const prevPlantLabels = !!env.showPlantLabels;
+  const prevLoc = `${env.liveLocationLat ?? ''},${env.liveLocationLon ?? ''},${env.liveDateISO ?? ''}`;
   env.apply(state);
+  window._ncvShowConstellations = !!env.showConstellations;
+  const nextLoc = `${env.liveLocationLat ?? ''},${env.liveLocationLon ?? ''},${env.liveDateISO ?? ''}`;
+  if (prevTreeCount !== env.treeFrameDensity) {
+    window._ncvUpdateTreeCount && _ncvUpdateTreeCount();
+  }
+  if (prevDepth !== env.branchDepth) {
+    window._ncvRebuildCanopy && _ncvRebuildCanopy();
+  }
+  if (prevTreeless !== !!env.forceTreeless) {
+    window._ncvRebuildCanopy && _ncvRebuildCanopy();
+  }
+  if (
+    prevConst !== !!env.showConstellations ||
+    prevConstLabels !== !!env.showConstellationLabels ||
+    prevPlantLabels !== !!env.showPlantLabels
+  ) {
+    window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
+  }
+  if (prevLoc !== nextLoc) {
+    if (window._ncvDidFirstSync) window._ncvBeginLocationTransition && _ncvBeginLocationTransition();
+    window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
+    window._ncvRebuildCanopy && _ncvRebuildCanopy();
+  }
+  window._ncvDidFirstSync = true;
   window._ncvSyncPanel && _ncvSyncPanel();
 });
 socket.on('remote:command', (payload = {}) => {
@@ -33,6 +65,35 @@ socket.on('remote:command', (payload = {}) => {
       break;
     case 'night_mode':
       env.timeOfDay = 23;
+      break;
+    case 'reseed_trees':
+      window._ncvRebuildCanopy && _ncvRebuildCanopy();
+      break;
+    case 'preset_wooded':
+    case 'preset_clearing':
+    case 'randomize_scene':
+      window._ncvUpdateTreeCount && _ncvUpdateTreeCount();
+      window._ncvRebuildCanopy && _ncvRebuildCanopy();
+      break;
+    case 'toggle_constellations':
+      env.showConstellations = !!(payload.data && payload.data.value);
+      window._ncvShowConstellations = !!env.showConstellations;
+      window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
+      break;
+    case 'toggle_sky_labels':
+      env.showConstellations = !!(payload.data && payload.data.value);
+      env.showConstellationLabels = !!(payload.data && payload.data.value);
+      env.showPlantLabels = !!(payload.data && payload.data.value);
+      window._ncvShowConstellations = !!env.showConstellations;
+      window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
+      break;
+    case 'toggle_labels':
+      env.showConstellationLabels = !!(payload.data && payload.data.value);
+      env.showPlantLabels = !!(payload.data && payload.data.value);
+      window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
+      break;
+    case 'set_location':
+      window._ncvBeginLocationTransition && _ncvBeginLocationTransition();
       break;
     default:
       return;
@@ -52,12 +113,20 @@ const EnvironmentManager = {
   milkyWayIntensity: 1.0, // 0–2: dedicated Milky Way intensity
   milkyWayBlur: 1.0, // 0–2: dedicated Milky Way blur multiplier
   constellationBrightness: 1.0, // 0–2: constellation line/label intensity
+  showConstellations: false,
+  showConstellationLabels: false,
+  showPlantLabels: false,
+  forceTreeless: false,
   cloudCover: 0.28, // 0–1
   skyBlur: 1.0, // 0–6 px blur for moon halo/cloud softness
   leafSoftness: 0.45, // 0–4 soft edge for leaves
   simulationMode: 'live',
   liveLocationName: 'New Haven, CT',
+  liveLocationLat: 41.3083,
+  liveLocationLon: -72.9279,
+  liveDateISO: new Date().toISOString(),
   performanceMode: 'auto',
+  season: 'auto', // auto | spring | summer | fall | winter
   soundMaster: 0.5, // 0–1
   soundCrickets: 0.35,
   soundThunder: 0.9,
@@ -67,18 +136,18 @@ const EnvironmentManager = {
   soundNightBirds: 0.25,
 
   // Tree configuration — changes take effect after canopy.rebuild()
-  treeSkyOpen: 1.0,      // 1.0–1.5: open sky in center
-  treeFrameDensity: 7,    // integer tree count (4–16)
-  treeFoliageMass: 0.35,  // 0–1: amount of foliage per branch network
-  treeBranchReach: 0.46,  // 0–1: how far branches reach inward
-  treeBranchChaos: 0.52,  // 0–1: straight vs irregular branching
+  treeSkyOpen: 1.10,      // 1.0–1.5: open sky in center
+  treeFrameDensity: 10,   // integer tree count (4–16)
+  treeFoliageMass: 0.85,  // 0–1: amount of foliage per branch network
+  treeBranchReach: 0.40,  // 0–1: how far branches reach inward
+  treeBranchChaos: 0.62,  // 0–1: straight vs irregular branching
   canopyCoverage: 0.45,  // 0–1: reach from edges toward center
   canopyTreeCount: 0.38, // 0–1: sparse tree count → dense forest count
   canopyDensity:  0.35,   // 0–1: 0=bare branches, 1=overwhelming leaves
   canopyPerspective: 0.72, // 0–1: flat silhouette → strong look-up depth cue
-  canopyEdgeLushness: 0.75, // 0–1: neutral foliage → lush green edge frame
+  canopyEdgeLushness: 1.0, // 0–1.5: neutral foliage → lush green edge frame
   branchSpread:   0.62,   // 0–1: 0=tight/columnar, 1=wide/spreading
-  branchDepth:    4,     // 3–5: recursion levels
+  branchDepth:    5,     // 3–5: recursion levels
 
   WEATHER_STATES: ['clear', 'rain', 'storm'],
 
@@ -104,12 +173,20 @@ const EnvironmentManager = {
       milkyWayIntensity: this.milkyWayIntensity,
       milkyWayBlur: this.milkyWayBlur,
       constellationBrightness: this.constellationBrightness,
+      showConstellations: this.showConstellations,
+      showConstellationLabels: this.showConstellationLabels,
+      showPlantLabels: this.showPlantLabels,
+      forceTreeless: this.forceTreeless,
       cloudCover: this.cloudCover,
       skyBlur: this.skyBlur,
       leafSoftness: this.leafSoftness,
       simulationMode: this.simulationMode,
       liveLocationName: this.liveLocationName,
+      liveLocationLat: this.liveLocationLat,
+      liveLocationLon: this.liveLocationLon,
+      liveDateISO: this.liveDateISO,
       performanceMode: this.performanceMode,
+      season: this.season,
       soundMaster: this.soundMaster,
       soundCrickets: this.soundCrickets,
       soundThunder: this.soundThunder,
@@ -142,6 +219,13 @@ const env = EnvironmentManager;
 let starField, canopy, flock, atmosphere, murmuration;
 let showDebug = true;
 let projectionEdgeMask = null;
+const locationTransition = {
+  active: false,
+  startMs: 0,
+  fadeInMs: 280,
+  holdMs: 220,
+  fadeOutMs: 640,
+};
 const perfState = {
   smoothFps: 60,
   qualityScale: 1,
@@ -159,6 +243,10 @@ window._ncvUpdateTreeCount = () => { canopy && canopy.updateTreeCount(env.treeFr
 window._ncvTriggerFlock = () => { murmuration && murmuration.triggerFlock(); };
 window._ncvInvalidateSkyCache = () => { starField && starField.invalidateCache(); };
 window._ncvEnableAudio = () => { atmosphere && atmosphere.enableAudio(); };
+window._ncvBeginLocationTransition = () => {
+  locationTransition.active = true;
+  locationTransition.startMs = millis();
+};
 
 
 // ----------------------------------------------------------
@@ -222,6 +310,7 @@ function draw() {
   flock.drawFrontLayer();// birds/bats in front
   atmosphere.drawOverlay();
   drawProjectionEdgeFade();
+  drawLocationTransitionOverlay();
 
   if (showDebug) drawDebugHUD();
 }
@@ -240,6 +329,28 @@ function windowResized() {
 
 function drawProjectionEdgeFade() {
   if (projectionEdgeMask) image(projectionEdgeMask, 0, 0, width, height);
+}
+
+function drawLocationTransitionOverlay() {
+  if (!locationTransition.active) return;
+  const t = millis() - locationTransition.startMs;
+  const inT = locationTransition.fadeInMs;
+  const hold = locationTransition.holdMs;
+  const outT = locationTransition.fadeOutMs;
+  const total = inT + hold + outT;
+  let a = 0;
+  if (t <= inT) a = map(t, 0, inT, 0, 255);
+  else if (t <= inT + hold) a = 255;
+  else if (t <= total) a = map(t, inT + hold, total, 255, 0);
+  else {
+    locationTransition.active = false;
+    return;
+  }
+  push();
+  noStroke();
+  fill(0, 0, 0, constrain(a, 0, 255));
+  rect(0, 0, width, height);
+  pop();
 }
 
 function rebuildProjectionEdgeMask() {
