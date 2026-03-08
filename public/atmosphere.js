@@ -6,12 +6,16 @@ class AtmosphereSystem {
   constructor() {
     this.clouds = [];
     this.flashAlpha = 0;
-    this.lightningSegments = [];
-    this.nextLightningAt = millis() + random(3000, 11000);
-    this.audio = new AtmosphereAudio();
     this._flashPeak = 0;
-    this._cloudCoreBuf = null; // Offscreen buffer for dense cloud mass
-    this._cloudWispBuf = null; // Offscreen buffer for wispy cloud fringe
+    // New lightning state
+    this.lightningBolts     = []; // [{segments, alpha, weight}] — fade independently
+    this.pendingStrikes     = []; // [{at, type}] — queued succession strikes
+    this.distantFlashAlpha  = 0;
+    this.distantFlashAngle  = 0;
+    this.nextLightningAt    = millis() + random(4000, 14000);
+    this.audio = new AtmosphereAudio();
+    this._cloudCoreBuf = null;
+    this._cloudWispBuf = null;
     this._seedClouds();
   }
 
@@ -31,9 +35,10 @@ class AtmosphereSystem {
     for (let i = 0; i < count; i++) {
       this.clouds.push({
         x: random(-width * 0.4, width * 1.4),
-        y: random(height * 0.04, height * 0.52),
+        y: random(height * 0.04, height * 0.96), // full canvas — looking up, clouds anywhere
         size: random(90, 300),
-        drift: random(0.15, 0.9),
+        drift:  random(0.15, 0.9),
+        driftY: random(-0.25, 0.25), // gentle vertical drift for overhead feel
         puff: random(4, 8),
         seed: random(10000),
         flowAngle: random(-0.28, 0.28),
@@ -53,8 +58,11 @@ class AtmosphereSystem {
 
     for (const c of this.clouds) {
       c.x += (0.05 + wind * c.drift) * weatherBoost;
-      c.y += sin((frameCount * 0.002) + c.seed) * 0.06;
-      if (c.x > width + c.size * 0.8) c.x = -c.size * 1.2;
+      c.y += (c.driftY ?? 0) * weatherBoost * 0.5 + sin((frameCount * 0.002) + c.seed) * 0.06;
+      if (c.x > width  + c.size * 0.8) c.x = -c.size * 1.2;
+      if (c.x < -c.size * 1.2)         c.x = width  + c.size * 0.8;
+      if (c.y > height + c.size * 0.8) c.y = -c.size * 1.2;
+      if (c.y < -c.size * 1.2)         c.y = height + c.size * 0.8;
     }
 
     this._updateLightning();
@@ -64,52 +72,174 @@ class AtmosphereSystem {
 
   _updateLightning() {
     if (env.currentWeather !== 'storm') {
-      this.flashAlpha = max(0, this.flashAlpha - 18);
+      this.flashAlpha         = max(0, this.flashAlpha - 18);
+      this.distantFlashAlpha  = max(0, this.distantFlashAlpha - 6);
+      this.lightningBolts     = [];
+      this.pendingStrikes     = [];
       return;
     }
 
     const now = millis();
-    if (now >= this.nextLightningAt) {
-      this._triggerLightning();
-      this.nextLightningAt = now + random(2000, 9000);
+
+    // Fire any queued succession strikes.
+    while (this.pendingStrikes.length > 0 && now >= this.pendingStrikes[0].at) {
+      this._triggerStrike(this.pendingStrikes.shift().type);
     }
 
-    this.flashAlpha = max(0, this.flashAlpha - 24);
+    // Schedule the next group.
+    if (now >= this.nextLightningAt) {
+      this._scheduleStrikeGroup();
+    }
+
+    // Fade sky flash and distant glow.
+    this.flashAlpha        = max(0, this.flashAlpha        - 22);
+    this.distantFlashAlpha = max(0, this.distantFlashAlpha -  5);
+
+    // Fade each bolt's alpha independently.
+    this.lightningBolts = this.lightningBolts.filter(b => {
+      b.alpha -= 30;
+      return b.alpha > 0;
+    });
   }
 
-  _triggerLightning() {
-    this.flashAlpha = random(190, 255);
-    this._flashPeak = this.flashAlpha;
-    this.lightningSegments = [];
+  // ---- scheduling ----
 
-    let x = random(width * 0.25, width * 0.75);
-    let y = -20;
-    const steps = floor(random(7, 12));
-    for (let i = 0; i < steps; i++) {
-      const nx = x + random(-40, 40);
-      const ny = y + random(height * 0.04, height * 0.10);
-      this.lightningSegments.push([x, y, nx, ny]);
-      x = nx;
-      y = ny;
+  _scheduleStrikeGroup() {
+    const now = millis();
+    const isDistant = Math.random() < 0.28; // ~28% of events are silent distant flashes
+
+    this._triggerStrike(isDistant ? 'distant' : 'local');
+
+    // Succession: close strikes occasionally fire 1–2 follow-ups rapidly.
+    if (!isDistant && Math.random() < 0.42) {
+      const t1 = now + random(90, 260);
+      this.pendingStrikes.push({ at: t1, type: Math.random() < 0.65 ? 'local' : 'distant' });
+      if (Math.random() < 0.38) {
+        this.pendingStrikes.push({ at: t1 + random(140, 380), type: Math.random() < 0.5 ? 'local' : 'distant' });
+      }
     }
 
-    if (window._ncvSocket && window._ncvSocket.connected) {
-      window._ncvSocket.emit('lightning_strike');
+    // Bimodal wait: active cell (short) vs quiet spell (long).
+    this.nextLightningAt = now + (Math.random() < 0.35
+      ? random(1200, 4500)    // active cell — strikes cluster
+      : random(8000, 24000)); // quiet spell — long silence
+  }
+
+  _triggerStrike(type) {
+    if (type === 'distant') this._triggerDistantFlash();
+    else                    this._triggerLocalBolt();
+  }
+
+  // ---- local bolt ----
+
+  _triggerLocalBolt() {
+    const alpha = random(175, 255);
+    this.flashAlpha  = max(this.flashAlpha, alpha);
+    this._flashPeak  = alpha;
+
+    const startX   = random(width * 0.12, width * 0.88);
+    const targetY  = height * random(0.25, 0.75);
+    const segments = this._buildBoltTree(startX, -10, targetY, 4);
+    this.lightningBolts.push({ segments, alpha: 255, weight: random(1.6, 2.8) });
+
+    if (window._ncvSocket?.connected) window._ncvSocket.emit('lightning_strike');
+
+    const delay     = random(0.08, 0.9);
+    const intensity = constrain(alpha / 255, 0.65, 1.0);
+    setTimeout(() => this.audio.playThunder(intensity), delay * 1000);
+  }
+
+  // Recursively builds a branching bolt tree.
+  // depth controls how many more segments to add; branches fork with decreasing prob.
+  _buildBoltTree(x, y, targetY, depth) {
+    const segs = [];
+    if (depth <= 0 || y >= targetY) return segs;
+
+    const stepH  = (targetY - y) / (depth + 1);
+    const jitter = lerp(18, 52, 1 - depth / 5);
+    const nx = x + random(-jitter, jitter);
+    const ny = y + stepH * random(0.7, 1.4);
+
+    segs.push({ x1: x, y1: y, x2: nx, y2: ny, depth });
+
+    // Continue main channel.
+    for (const s of this._buildBoltTree(nx, ny, targetY, depth - 1)) segs.push(s);
+
+    // Random fork branch — probability and reach decrease with depth.
+    if (depth >= 2 && Math.random() < 0.36) {
+      const sign   = Math.random() < 0.5 ? -1 : 1;
+      const fx     = nx + sign * random(12, 38);
+      const fy     = ny + random(8, 28);
+      const fEnd   = Math.min(targetY, fy + stepH * random(1.2, 3.0));
+      for (const s of this._buildBoltTree(fx, fy, fEnd, depth - 2)) segs.push(s);
     }
-    const intensity = constrain(this._flashPeak / 255, 0.7, 1.0);
-    this.audio.playThunder(intensity);
+
+    return segs;
+  }
+
+  // ---- distant flash (no bolt) ----
+
+  _triggerDistantFlash() {
+    this.distantFlashAlpha = random(40, 105);
+    this.distantFlashAngle = random(TWO_PI); // glow origin on any edge
+
+    // Soft, noticeably delayed thunder — sounds far away.
+    const delay     = random(2.8, 7.5);
+    const intensity = random(0.12, 0.38);
+    setTimeout(() => this.audio.playThunder(intensity), delay * 1000);
   }
 
   drawSky() {
+    this._drawTwilightGradient();
     this._drawOvercastWash();
     this._drawSunAndMoon();
     this._drawClouds();
+    this._drawDistantFlash();
     this._drawFlashSkyWash();
     this._drawLightningBolt();
   }
 
   drawOverlay() {
     // No post-foreground wash: we want trees to stay dark silhouettes.
+  }
+
+  // Radial twilight gradient: you are looking UP at the ceiling.
+  // The center of the frame is the zenith (directly overhead) — paler.
+  // The edges are toward the horizon where all the sunset/sunrise color lives.
+  _drawTwilightGradient() {
+    const t = env.timeOfDay;
+    const isSunrise = t >= 5.2 && t <= 9.0;
+    const isSunset  = t >= 17.0 && t <= 21.8;
+    if (!isSunrise && !isSunset) return;
+
+    let k;
+    if (isSunrise) {
+      k = t < 7.0 ? map(t, 5.2, 7.0, 0, 1) : map(t, 7.0, 9.0, 1, 0);
+    } else {
+      k = t < 19.5 ? map(t, 17.0, 19.5, 0, 1) : map(t, 19.5, 21.8, 1, 0);
+    }
+    k = constrain(k, 0, 1);
+    if (k <= 0.01) return;
+
+    const cx = width * 0.5;
+    const cy = height * 0.5;
+    // Radius reaches the corners so edges fully saturate.
+    const r = Math.sqrt(cx * cx + cy * cy) * 1.08;
+
+    const grad = drawingContext.createRadialGradient(cx, cy, 0, cx, cy, r);
+    // Zenith (center overhead): pale warm white-yellow
+    grad.addColorStop(0,    `rgba(255, 245, 220, ${(0.50 * k).toFixed(3)})`);
+    grad.addColorStop(0.30, `rgba(248, 200, 130, ${(0.42 * k).toFixed(3)})`);
+    // Mid: golden orange
+    grad.addColorStop(0.58, `rgba(220, 105, 35,  ${(0.55 * k).toFixed(3)})`);
+    // Edge (horizon): deep red-orange
+    grad.addColorStop(0.82, `rgba(185, 55, 18,   ${(0.62 * k).toFixed(3)})`);
+    grad.addColorStop(1.0,  `rgba(140, 28, 8,    ${(0.68 * k).toFixed(3)})`);
+
+    drawingContext.save();
+    drawingContext.fillStyle = grad;
+    drawingContext.fillRect(0, 0, width, height);
+    drawingContext.restore();
   }
 
   _drawFlashSkyWash() {
@@ -259,10 +389,10 @@ class AtmosphereSystem {
     const t = env.timeOfDay;
     const sun = this._celestialFromTime(t);
     const moon = this._moonFromTimeAndDate(t);
+    window._ncvMoonState = moon;
     const cover = constrain(env.cloudCover ?? 0.2, 0, 1);
     const heavyOvercast = cover > 0.72 || env.currentWeather === 'storm';
-    const q = constrain(window._ncvQualityScale ?? 1, 0.5, 1);
-    const blurPx = constrain((env.skyBlur ?? 1.2) * q, 0, 6);
+    const blurPx = 4;
 
     if (sun.visible) {
       noStroke();
@@ -276,12 +406,8 @@ class AtmosphereSystem {
         drawingContext.filter = 'none';
       } else {
         const haze = env.currentWeather === 'storm' ? 0.35 : 1.0 - cover * 0.45;
-        fill(255, 216, 140, 50 * haze);
-        circle(sun.x, sun.y, 140);
-        fill(255, 228, 165, 130 * haze);
-        circle(sun.x, sun.y, 72);
-        fill(255, 244, 205, 190 * haze);
-        circle(sun.x, sun.y, 34);
+        fill(255, 242, 195, 220 * haze);
+        circle(sun.x, sun.y, 44);
       }
     }
 
@@ -290,17 +416,25 @@ class AtmosphereSystem {
       const d = 42;
       const illum = 0.5 * (1 - cos(TWO_PI * phase)); // 0=new, 1=full
       const waxing = phase < 0.5;
+      const moonDayDim = sun.visible ? 0.28 : 1.0;
+      const moonAtNight = !sun.visible;
 
-      // Extremely soft, wide atmospheric bloom
-      drawingContext.filter = blurPx > 0.05 ? `blur(${(blurPx * 10.5).toFixed(2)}px)` : 'none';
+      // Hard occultation disc so stars never show through the moon body.
       noStroke();
-      fill(170, 200, 255, heavyOvercast ? 5 : 10);
-      circle(moon.x, moon.y, 320);
-      fill(180, 210, 255, heavyOvercast ? 7 : 15);
-      circle(moon.x, moon.y, 200);
-      fill(195, 220, 255, heavyOvercast ? 10 : 22);
-      circle(moon.x, moon.y, 120);
-      drawingContext.filter = 'none';
+      fill(18, 24, 34, 255);
+      circle(moon.x, moon.y, d * 1.02);
+
+      // Extremely soft atmospheric bloom at night only.
+      if (moonAtNight) {
+        drawingContext.filter = blurPx > 0.05 ? `blur(${(blurPx * 10.5).toFixed(2)}px)` : 'none';
+        fill(170, 200, 255, (heavyOvercast ? 5 : 10) * moonDayDim);
+        circle(moon.x, moon.y, 320);
+        fill(180, 210, 255, (heavyOvercast ? 7 : 15) * moonDayDim);
+        circle(moon.x, moon.y, 200);
+        fill(195, 220, 255, (heavyOvercast ? 10 : 22) * moonDayDim);
+        circle(moon.x, moon.y, 120);
+        drawingContext.filter = 'none';
+      }
 
       if (heavyOvercast) {
         drawingContext.filter = blurPx > 0.05 ? `blur(${(blurPx * 2.6).toFixed(2)}px)` : 'none';
@@ -312,16 +446,22 @@ class AtmosphereSystem {
         drawingContext.filter = 'none';
       } else {
         // Base moon disc remains visible but subtle.
-        fill(205, 214, 226, 120 * (1 - cover * 0.45));
+        const baseA = moonAtNight ? (120 * (1 - cover * 0.45) * moonDayDim) : (92 * (1 - cover * 0.28));
+        fill(moonAtNight ? 205 : 232, moonAtNight ? 214 : 236, moonAtNight ? 226 : 238, baseA);
         circle(moon.x, moon.y, d);
 
         // Lit portion: bright ellipse shifted by phase, avoiding hard shadow edges.
         const litW = d * (0.16 + illum * 0.84);
         const offset = (waxing ? -1 : 1) * (d * 0.42 * (1 - illum));
-        fill(240, 246, 255, (40 + illum * 190) * (1 - cover * 0.45));
+        const litA = moonAtNight
+          ? ((40 + illum * 190) * (1 - cover * 0.45) * moonDayDim)
+          : ((68 + illum * 150) * (1 - cover * 0.30));
+        fill(moonAtNight ? 240 : 246, moonAtNight ? 246 : 248, moonAtNight ? 255 : 250, litA);
         ellipse(moon.x + offset, moon.y, litW, d * 0.98);
       }
     }
+
+    this._drawPlanets(t, cover, moon, sun);
   }
 
   _drawOvercastWash() {
@@ -339,12 +479,12 @@ class AtmosphereSystem {
   }
 
   _celestialFromTime(hour) {
-    if (hour < 6 || hour > 18) return { visible: false, x: 0, y: 0 };
-    const p = map(hour, 6, 18, 0, 1);
+    if (hour < 5 || hour > 19) return { visible: false, x: 0, y: 0 };
+    const p = map(hour, 5, 19, 0, 1);
     return {
       visible: true,
       x: lerp(width * 0.08, width * 0.92, p),
-      y: height * (0.68 - sin(p * PI) * 0.56),
+      y: height * (0.60 - sin(p * PI) * 0.30),
     };
   }
 
@@ -361,8 +501,197 @@ class AtmosphereSystem {
       visible: true,
       phase,
       x: lerp(width * 0.12, width * 0.88, p),
-      y: height * (0.70 - sin(p * PI) * 0.54),
+      y: height * (0.62 - sin(p * PI) * 0.28),
     };
+  }
+
+  _drawPlanets(hour, cloudCover, moon, sun) {
+    const cloudK = 1 - cloudCover * 0.55;
+    if (cloudK <= 0.08) return;
+
+    const now = this._dateAtHour(hour);
+    const jd = this._julianDay(now);
+    const d = jd - 2451543.5; // days since 2000 Jan 0.0 (UT)
+    const latDeg = 41.31;     // New Haven latitude
+    const lonDeg = -72.93;    // New Haven longitude
+    const lstDeg = this._localSiderealDeg(jd, lonDeg);
+    const cx = width * 0.5;
+    const cy = height * 0.5;
+    const scale = min(width, height) * 0.5;
+    const isNight = hour < 6.5 || hour > 20.5;
+
+    const earth = this._heliocentricEcliptic('earth', d);
+    const sunEq = this._sunRaDecFromEarth(earth, d);
+
+    const planets = [
+      { key: 'venus',  r: 255, g: 241, b: 208, size: 7.2, mag: -4.2 },
+      { key: 'mars',   r: 238, g: 153, b: 124, size: 5.8, mag:  1.0 },
+      { key: 'jupiter',r: 236, g: 220, b: 188, size: 9.0, mag: -2.2 },
+      { key: 'saturn', r: 230, g: 207, b: 162, size: 7.4, mag:  0.7 },
+    ];
+
+    noStroke();
+    for (const p of planets) {
+      const eq = this._planetRaDec(p.key, d, earth);
+      const hor = this._radecToHorizontal(eq.raDeg, eq.decDeg, lstDeg, latDeg);
+      if (hor.altDeg <= 1.5) continue; // not visible above horizon
+
+      const proj = this._horizontalToScreen(hor.altDeg, hor.azDeg, cx, cy, scale);
+      if (!proj) continue;
+      if (moon.visible && dist(proj.x, proj.y, moon.x, moon.y) < 58) continue;
+
+      const sunSep = this._angularSeparationDeg(eq.raDeg, eq.decDeg, sunEq.raDeg, sunEq.decDeg);
+      let dayDim = isNight ? 1.0 : 0.22;
+      if (!isNight) {
+        if (sunSep < 14) continue;
+        if (sunSep < 28) dayDim *= 0.45;
+        if (p.mag > 0.8) dayDim *= 0.70; // dimmer planets are harder in daylight
+      }
+
+      const magK = constrain(map(p.mag, -4.5, 1.5, 1.05, 0.36), 0.30, 1.1);
+      const a = 225 * cloudK * dayDim * magK;
+      if (a < 8) continue;
+
+      fill(p.r, p.g, p.b, a);
+      circle(proj.x, proj.y, p.size);
+
+      if (p.key === 'jupiter') {
+        noFill();
+        stroke(226, 212, 182, a * 0.68);
+        strokeWeight(1.0);
+        push();
+        translate(proj.x, proj.y);
+        rotate(-0.30);
+        ellipse(0, 0, p.size * 2.45, p.size * 0.92);
+        pop();
+        noStroke();
+      }
+    }
+  }
+
+  _dateAtHour(hour) {
+    const d = new Date();
+    const h = Math.floor(hour);
+    const m = Math.floor((hour - h) * 60);
+    const s = Math.floor((((hour - h) * 60) - m) * 60);
+    d.setHours(h, m, s, 0);
+    return d;
+  }
+
+  _julianDay(dateObj) {
+    return dateObj.getTime() / 86400000 + 2440587.5;
+  }
+
+  _normDeg(v) {
+    return ((v % 360) + 360) % 360;
+  }
+
+  _localSiderealDeg(jd, lonDeg) {
+    const T = (jd - 2451545.0) / 36525.0;
+    const gmst = 280.46061837
+      + 360.98564736629 * (jd - 2451545.0)
+      + 0.000387933 * T * T
+      - (T * T * T) / 38710000;
+    return this._normDeg(gmst + lonDeg);
+  }
+
+  _planetElements(key, d) {
+    if (key === 'earth') {
+      return { N: 0, i: 0, w: 282.9404 + 4.70935e-5 * d, a: 1.0, e: 0.016709 - 1.151e-9 * d, M: 356.0470 + 0.9856002585 * d };
+    }
+    if (key === 'venus') {
+      return { N: 76.6799 + 2.46590e-5 * d, i: 3.3946 + 2.75e-8 * d, w: 54.8910 + 1.38374e-5 * d, a: 0.72333, e: 0.006773 - 1.302e-9 * d, M: 48.0052 + 1.6021302244 * d };
+    }
+    if (key === 'mars') {
+      return { N: 49.5574 + 2.11081e-5 * d, i: 1.8497 - 1.78e-8 * d, w: 286.5016 + 2.92961e-5 * d, a: 1.523688, e: 0.093405 + 2.516e-9 * d, M: 18.6021 + 0.5240207766 * d };
+    }
+    if (key === 'jupiter') {
+      return { N: 100.4542 + 2.76854e-5 * d, i: 1.3030 - 1.557e-7 * d, w: 273.8777 + 1.64505e-5 * d, a: 5.20256, e: 0.048498 + 4.469e-9 * d, M: 19.8950 + 0.0830853001 * d };
+    }
+    if (key === 'saturn') {
+      return { N: 113.6634 + 2.38980e-5 * d, i: 2.4886 - 1.081e-7 * d, w: 339.3939 + 2.97661e-5 * d, a: 9.55475, e: 0.055546 - 9.499e-9 * d, M: 316.9670 + 0.0334442282 * d };
+    }
+    return null;
+  }
+
+  _solveKepler(Mrad, e) {
+    let E = Mrad + e * Math.sin(Mrad) * (1 + e * Math.cos(Mrad));
+    for (let i = 0; i < 6; i++) {
+      E -= (E - e * Math.sin(E) - Mrad) / (1 - e * Math.cos(E));
+    }
+    return E;
+  }
+
+  _heliocentricEcliptic(key, d) {
+    const el = this._planetElements(key, d);
+    if (!el) return { x: 0, y: 0, z: 0 };
+    const N = radians(this._normDeg(el.N));
+    const i = radians(el.i);
+    const w = radians(this._normDeg(el.w));
+    const M = radians(this._normDeg(el.M));
+    const E = this._solveKepler(M, el.e);
+    const xv = el.a * (Math.cos(E) - el.e);
+    const yv = el.a * (Math.sqrt(1 - el.e * el.e) * Math.sin(E));
+    const v = Math.atan2(yv, xv);
+    const r = Math.sqrt(xv * xv + yv * yv);
+    const vw = v + w;
+
+    return {
+      x: r * (Math.cos(N) * Math.cos(vw) - Math.sin(N) * Math.sin(vw) * Math.cos(i)),
+      y: r * (Math.sin(N) * Math.cos(vw) + Math.cos(N) * Math.sin(vw) * Math.cos(i)),
+      z: r * (Math.sin(vw) * Math.sin(i)),
+    };
+  }
+
+  _eclipticToEquatorial(x, y, z, d) {
+    const obl = radians(23.4393 - 3.563e-7 * d);
+    const xeq = x;
+    const yeq = y * Math.cos(obl) - z * Math.sin(obl);
+    const zeq = y * Math.sin(obl) + z * Math.cos(obl);
+    const ra = this._normDeg(degrees(Math.atan2(yeq, xeq)));
+    const dec = degrees(Math.atan2(zeq, Math.sqrt(xeq * xeq + yeq * yeq)));
+    return { raDeg: ra, decDeg: dec };
+  }
+
+  _planetRaDec(key, d, earthHelio) {
+    const p = this._heliocentricEcliptic(key, d);
+    return this._eclipticToEquatorial(p.x - earthHelio.x, p.y - earthHelio.y, p.z - earthHelio.z, d);
+  }
+
+  _sunRaDecFromEarth(earthHelio, d) {
+    return this._eclipticToEquatorial(-earthHelio.x, -earthHelio.y, -earthHelio.z, d);
+  }
+
+  _radecToHorizontal(raDeg, decDeg, lstDeg, latDeg) {
+    const H = radians(this._normDeg(lstDeg - raDeg));
+    const lat = radians(latDeg);
+    const dec = radians(decDeg);
+    const sinAlt = Math.sin(dec) * Math.sin(lat) + Math.cos(dec) * Math.cos(lat) * Math.cos(H);
+    const alt = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
+    const cosAz = (Math.sin(dec) - Math.sin(alt) * Math.sin(lat)) /
+                  (Math.max(1e-8, Math.cos(alt) * Math.cos(lat)));
+    let az = Math.acos(Math.max(-1, Math.min(1, cosAz)));
+    if (Math.sin(H) > 0) az = TWO_PI - az;
+    return { altDeg: degrees(alt), azDeg: degrees(az) };
+  }
+
+  _horizontalToScreen(altDeg, azDeg, cx, cy, scale) {
+    if (altDeg < 0) return null;
+    const alt = radians(altDeg);
+    const az = radians(azDeg);
+    const r = (HALF_PI - alt) / HALF_PI;
+    return {
+      x: cx + Math.sin(az) * r * scale,
+      y: cy - Math.cos(az) * r * scale,
+    };
+  }
+
+  _angularSeparationDeg(ra1Deg, dec1Deg, ra2Deg, dec2Deg) {
+    const ra1 = radians(ra1Deg), dec1 = radians(dec1Deg);
+    const ra2 = radians(ra2Deg), dec2 = radians(dec2Deg);
+    const cosSep = Math.sin(dec1) * Math.sin(dec2) +
+                   Math.cos(dec1) * Math.cos(dec2) * Math.cos(ra1 - ra2);
+    return degrees(Math.acos(Math.max(-1, Math.min(1, cosSep))));
   }
 
   _moonPhaseFraction() {
@@ -374,13 +703,76 @@ class AtmosphereSystem {
     return ((days % synodicMonth) + synodicMonth) % synodicMonth / synodicMonth;
   }
 
+  // Soft edge-glow for distant lightning — no bolt, just sky illumination.
+  _drawDistantFlash() {
+    if (this.distantFlashAlpha <= 1) return;
+    const a   = this.distantFlashAlpha;
+    const ang = this.distantFlashAngle;
+    // Source sits off-screen on whichever edge the angle points to.
+    const sx  = width  * 0.5 + Math.cos(ang) * width  * 0.85;
+    const sy  = height * 0.5 + Math.sin(ang) * height * 0.85;
+    const r   = Math.max(width, height) * 0.72;
+    const grad = drawingContext.createRadialGradient(sx, sy, 0, sx, sy, r);
+    grad.addColorStop(0,   `rgba(215,232,255,${(a/255*0.55).toFixed(3)})`);
+    grad.addColorStop(0.38,`rgba(200,222,255,${(a/255*0.22).toFixed(3)})`);
+    grad.addColorStop(1.0, `rgba(185,210,255,0)`);
+    drawingContext.save();
+    drawingContext.fillStyle = grad;
+    drawingContext.fillRect(0, 0, width, height);
+    drawingContext.restore();
+  }
+
+  // Draw all active bolts — each fades independently.
+  // Uses raw canvas 2D API with batched paths for performance:
+  //   - Glow + mid passes: all segments in ONE beginPath() → ONE stroke() call each.
+  //   - Core pass: group segments by depth so strokeWeight changes are minimised.
   _drawLightningBolt() {
-    if (this.flashAlpha <= 8 || this.lightningSegments.length === 0) return;
-    stroke(230, 245, 255, 215);
-    strokeWeight(2.2);
-    for (const [x1, y1, x2, y2] of this.lightningSegments) {
-      line(x1, y1, x2, y2);
+    if (this.lightningBolts.length === 0) return;
+    const dc = drawingContext;
+    dc.save();
+    dc.lineCap = 'round';
+    noStroke(); // prevent p5 from overwriting canvas state
+
+    for (const bolt of this.lightningBolts) {
+      if (bolt.alpha <= 0) continue;
+      const a    = constrain(bolt.alpha, 0, 255) / 255;
+      const segs = bolt.segments;
+      if (segs.length === 0) continue;
+
+      // --- Glow pass: all segments → one path ---
+      dc.lineWidth   = bolt.weight * 4.5;
+      dc.strokeStyle = `rgba(190,220,255,${(a * 0.30).toFixed(3)})`;
+      dc.beginPath();
+      for (const s of segs) { dc.moveTo(s.x1, s.y1); dc.lineTo(s.x2, s.y2); }
+      dc.stroke();
+
+      // --- Mid glow: all segments → one path ---
+      dc.lineWidth   = bolt.weight * 2.2;
+      dc.strokeStyle = `rgba(220,238,255,${(a * 0.55).toFixed(3)})`;
+      dc.beginPath();
+      for (const s of segs) { dc.moveTo(s.x1, s.y1); dc.lineTo(s.x2, s.y2); }
+      dc.stroke();
+
+      // --- Core: group by depth to minimise lineWidth changes ---
+      dc.strokeStyle = `rgba(235,248,255,${a.toFixed(3)})`;
+      const sorted = segs.slice().sort((a, b) => b.depth - a.depth);
+      let curW = -1;
+      dc.beginPath();
+      for (const s of sorted) {
+        const w = bolt.weight * (0.35 + (s.depth / 5) * 0.65);
+        if (Math.abs(w - curW) > 0.08) {
+          if (curW >= 0) dc.stroke();
+          dc.beginPath();
+          curW = w;
+          dc.lineWidth = curW;
+        }
+        dc.moveTo(s.x1, s.y1);
+        dc.lineTo(s.x2, s.y2);
+      }
+      if (curW >= 0) dc.stroke();
     }
+
+    dc.restore();
   }
 }
 

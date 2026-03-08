@@ -41,25 +41,36 @@ class StarField {
                       ['Bellatrix','Betelgeuse'],['Saiph','Betelgeuse'],
                       ['Betelgeuse','Bellatrix'],
                       ['Mintaka','Alnilam'],['Alnilam','Alnitak'],
-                      ['Mintaka','Bellatrix'],['Alnitak','Saiph']],
+                      ['Mintaka','Bellatrix'],['Alnitak','Saiph'],
+                      ['Meissa','Bellatrix'],['Meissa','Betelgeuse'],
+                      ['Tabit','Mintaka']],
       'Ursa Major':  [['Dubhe','Merak'],['Merak','Phecda'],
                       ['Phecda','Megrez'],['Megrez','Alioth'],
                       ['Alioth','Mizar'],['Mizar','Alkaid'],
-                      ['Dubhe','Merak']],
+                      ['Alioth','Alkaid'],['Phecda','Alioth']],
       'Ursa Minor':  [['Polaris','Kochab']],
       'Cassiopeia':  [['Caph','Schedar'],['Schedar','GammaCas'],
                       ['GammaCas','Ruchbah'],['Ruchbah','Segin']],
-      'Gemini':      [['Castor','Pollux'],['Castor','Alhena'],['Pollux','Alhena']],
+      'Gemini':      [['Castor','Pollux'],['Castor','Alhena'],['Pollux','Alhena'],
+                      ['Castor','Delta Gem'],['Pollux','Delta Gem'],
+                      ['Delta Gem','Kappa Gem']],
       'Leo':         [['Regulus','Algieba'],['Algieba','Zosma'],
-                      ['Zosma','Denebola'],['Regulus','Denebola']],
-      'Scorpius':    [['Antares','Graffias'],['Antares','Shaula']],
-      'Cygnus':      [['Deneb','Sadr'],['Sadr','Albireo']],
+                      ['Zosma','Denebola'],['Regulus','Denebola'],
+                      ['Regulus','Zosma']],
+      'Scorpius':    [['Antares','Graffias'],['Antares','Shaula'],
+                      ['Shaula','Lesath'],['Graffias','Shaula']],
+      'Cygnus':      [['Deneb','Sadr'],['Sadr','Albireo'],
+                      ['Deneb','Delta Cyg'],['Delta Cyg','Sadr'],
+                      ['Sadr','Zeta Cyg'],['Sadr','Iota Cyg']],
       'Lyra':        [['Vega','Sulafat']],
-      'Perseus':     [['Mirfak','Algol']],
-      'Boötes':      [['Arcturus','Izar']],
-      'Taurus':      [['Aldebaran','Elnath'],['Aldebaran','Alcyone']],
+      'Perseus':     [['Mirfak','Algol'],['Mirfak','Atik'],['Mirfak','Zeta Per']],
+      'Boötes':      [['Arcturus','Izar'],['Arcturus','Muphrid'],
+                      ['Izar','Seginus'],['Seginus','Nekkar']],
+      'Taurus':      [['Aldebaran','Elnath'],['Aldebaran','Alcyone'],
+                      ['Alcyone','23 Tau'],['23 Tau','27 Tau']],
       'Aquila':      [['Altair','Tarazed']],
-      'Pegasus':     [['Alpheratz','Markab'],['Markab','Scheat']],
+      'Pegasus':     [['Alpheratz','Markab'],['Markab','Scheat'],
+                      ['Scheat','Matar'],['Markab','Biham']],
       'Andromeda':   [['Alpheratz','Mirach'],['Mirach','Almach']],
     };
   }
@@ -282,64 +293,67 @@ class StarField {
   // Milky Way — wide, very diffuse glow band
   // More passes at lower opacity produce a genuine nebulous look.
   // ----------------------------------------------------------
-  _drawMilkyWay(gfx, lst, alpha, cx, cy, scale) {
-    if (alpha < 0.05) return;
+  _drawMilkyWay(gfx, lst, visAlpha, nightAlpha, cx, cy, scale) {
+    if (visAlpha < 0.005) return;
 
     const pts = this.mwSpine
       .map(([ra, dec]) => this._project(ra, dec, lst, cx, cy, scale))
       .filter(Boolean);
     if (pts.length < 3) return;
 
+    // Crazy-soft continuous ribbon: no segment-by-segment stroking (prevents bright junction dots).
+    const dc = gfx.drawingContext;
+    dc.save();
+    const blurMul = constrain(env.milkyWayBlur ?? 1, 0, 2);
+    const ribbonBlur = lerp(12, 22, constrain(nightAlpha, 0, 1)) * blurMul;
+    dc.filter = `blur(${ribbonBlur.toFixed(1)}px)`;
+    dc.lineCap = 'butt';
+    dc.lineJoin = 'round';
     gfx.noFill();
-    // Subtle diffuse backbone: lower opacity + irregular thickness.
-    for (let pass = 0; pass < 7; pass++) {
-      const pct = pass / 6;
-      const w = lerp(scale * 0.24, scale * 0.035, pct); // narrower than before
-      const opacity = lerp(0.9, 4.2, pct) * alpha;      // much softer than before
-      const pr = lerp(150, 186, pct);
-      const pg = lerp(195, 208, pct);
-      const pb = lerp(230, 245, pct);
-      const wobble = sin(pass * 1.3) * 0.02;
-
-      gfx.stroke(pr, pg, pb, opacity);
-      gfx.strokeWeight(w * (1 + wobble));
+    for (let pass = 0; pass < 6; pass++) {
+      const pct = pass / 5;
+      const w = lerp(scale * 0.24, scale * 0.09, pct);
+      const a = lerp(0.32, 0.92, pct) * visAlpha;
+      gfx.stroke(
+        lerp(166, 190, pct),
+        lerp(210, 220, pct),
+        lerp(242, 250, pct),
+        a
+      );
+      gfx.strokeWeight(w);
       gfx.beginShape();
-      pts.forEach(p => gfx.curveVertex(p.sx, p.sy));
+      gfx.curveVertex(pts[0].sx, pts[0].sy);
+      for (const p of pts) gfx.curveVertex(p.sx, p.sy);
       gfx.curveVertex(pts[pts.length - 1].sx, pts[pts.length - 1].sy);
       gfx.endShape();
     }
+    dc.restore();
 
-    // Mottled core patches: makes the band look less like a single line.
+    // Very subtle center haze, trailing off strongly at both ends.
     gfx.noStroke();
-    const blurAmt = 26 * alpha;
-    gfx.drawingContext.filter = `blur(${blurAmt.toFixed(1)}px)`;
-    
+    dc.save();
+    const hazeBlur = lerp(18, 30, constrain(nightAlpha, 0, 1)) * blurMul;
+    dc.filter = `blur(${hazeBlur.toFixed(1)}px)`;
     for (let i = 1; i < pts.length - 1; i++) {
       const p = pts[i];
-      const n = noise(i * 0.21, this.baseLST * 0.003);
-      const local = sin((i / pts.length) * PI);
-      const strength = local * n;
-      const a = (5 + strength * 22) * alpha; // Slightly higher opacity to survive heavy blur
-      if (a < 1.2) continue;
+      const local = sin((i / (pts.length - 1)) * PI); // 0 at ends, 1 center
+      const centerK = Math.pow(local, 1.8);
+      if (centerK < 0.03) continue;
 
-      const patchW = lerp(scale * 0.12, scale * 0.28, strength); // Even larger patches for better blending
-      const patchH = patchW * lerp(0.6, 1.0, noise(i * 0.37, 12.7));
+      const jitter = noise(i * 0.23, this.baseLST * 0.004);
+      const a = (0.44 + centerK * 1.30) * visAlpha * (0.82 + jitter * 0.20);
+      const patchW = lerp(scale * 0.10, scale * 0.48, centerK);
+      const patchH = patchW * lerp(0.78, 1.25, noise(i * 0.31, 11.4));
 
-      gfx.fill(
-        lerp(170, 210, strength),
-        lerp(200, 225, strength),
-        lerp(235, 255, strength),
-        a
-      );
+      gfx.fill(186, 214, 248, a);
       gfx.ellipse(
-        p.sx + map(noise(i * 0.51, 4.9), 0, 1, -patchW * 0.35, patchW * 0.35),
-        p.sy + map(noise(i * 0.47, 8.3), 0, 1, -patchH * 0.35, patchH * 0.35),
+        p.sx + map(noise(i * 0.41, 6.7), 0, 1, -patchW * 0.28, patchW * 0.28),
+        p.sy + map(noise(i * 0.37, 9.1), 0, 1, -patchH * 0.28, patchH * 0.28),
         patchW,
         patchH
       );
     }
-    gfx.drawingContext.filter = 'none';
-    gfx.drawingContext.filter = 'none';
+    dc.restore();
   }
 
   // ----------------------------------------------------------
@@ -398,7 +412,9 @@ class StarField {
 
   _renderNightBuffer() {
     const sMul = constrain(env.starBrightness ?? 1, 0, 2);
-    const alpha = this._starAlpha() * sMul;
+    const mwMul = constrain(env.milkyWayIntensity ?? 1, 0, 2);
+    const nightAlpha = this._starAlpha();
+    const alpha = nightAlpha * sMul;
     const gfx   = this.nightBuffer;
     const lst   = this._getLST();
     const cx    = width / 2;
@@ -411,7 +427,8 @@ class StarField {
       return;
     }
 
-    this._drawMilkyWay(gfx, lst, alpha, cx, cy, scale);
+    const mwAlpha = nightAlpha * (1.1 + sMul * 0.95) * mwMul;
+    this._drawMilkyWay(gfx, lst, mwAlpha, nightAlpha, cx, cy, scale);
 
     gfx.noStroke();
     for (const s of this.stars) {

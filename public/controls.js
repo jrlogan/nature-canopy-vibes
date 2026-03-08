@@ -215,6 +215,30 @@
 
     <div class="ncv-row">
       <div class="ncv-label">
+        <span>City Preset</span>
+      </div>
+      <div class="ncv-weather-row">
+        <select id="ncv-city-select" style="flex:1;min-width:0;padding:4px 6px;background:rgba(255,255,255,.05);border:1px solid rgba(80,130,200,.3);border-radius:6px;color:#c8daf0;font-family:inherit;font-size:11px;">
+          <option value="">Custom…</option>
+          <option value="New Haven, CT" data-match="new haven">New Haven, CT</option>
+          <option value="New York, NY" data-match="new york">New York, NY</option>
+          <option value="Chicago, IL" data-match="chicago">Chicago, IL</option>
+          <option value="Denver, CO" data-match="denver">Denver, CO</option>
+          <option value="Los Angeles, CA" data-match="los angeles">Los Angeles, CA</option>
+          <option value="Seattle, WA" data-match="seattle">Seattle, WA</option>
+          <option value="Miami, FL" data-match="miami">Miami, FL</option>
+          <option value="Anchorage, AK" data-match="anchorage">Anchorage, AK</option>
+          <option value="Honolulu, HI" data-match="honolulu">Honolulu, HI</option>
+          <option value="London, UK" data-match="london">London, UK</option>
+          <option value="Paris, France" data-match="paris">Paris, France</option>
+          <option value="Tokyo, JP" data-match="tokyo">Tokyo, JP</option>
+          <option value="Sydney, AU" data-match="sydney">Sydney, AU</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="ncv-row">
+      <div class="ncv-label">
         <span>Star Brightness</span>
         <span class="ncv-val" id="ncv-star-brightness-val">1.00</span>
       </div>
@@ -231,18 +255,26 @@
 
     <div class="ncv-row">
       <div class="ncv-label">
-        <span>Cloud Cover</span>
-        <span class="ncv-val" id="ncv-cloud-cover-val">0.20</span>
+        <span>Milky Way</span>
+        <span class="ncv-val" id="ncv-milky-way-val">1.00</span>
       </div>
-      <input type="range" id="ncv-cloud-cover" min="0" max="1" step="0.05" value="0.2">
+      <input type="range" id="ncv-milky-way" min="0" max="2" step="0.05" value="1">
     </div>
 
     <div class="ncv-row">
       <div class="ncv-label">
-        <span>Sky Blur</span>
-        <span class="ncv-val" id="ncv-sky-blur-val">1.20</span>
+        <span>Milky Blur</span>
+        <span class="ncv-val" id="ncv-milky-blur-val">1.00</span>
       </div>
-      <input type="range" id="ncv-sky-blur" min="0" max="6" step="0.1" value="1.2">
+      <input type="range" id="ncv-milky-blur" min="0" max="2" step="0.05" value="1">
+    </div>
+
+    <div class="ncv-row">
+      <div class="ncv-label">
+        <span>Cloud Cover</span>
+        <span class="ncv-val" id="ncv-cloud-cover-val">0.20</span>
+      </div>
+      <input type="range" id="ncv-cloud-cover" min="0" max="1" step="0.05" value="0.2">
     </div>
 
     <div class="ncv-row">
@@ -259,30 +291,30 @@
     <div class="ncv-row">
       <div class="ncv-label">
         <span>Sky Opening</span>
-        <span class="ncv-val" id="ncv-coverage-val">0.45</span>
+        <span class="ncv-val" id="ncv-coverage-val">1.00</span>
       </div>
-      <input type="range" id="ncv-coverage" min="0" max="1" step="0.05" value="0.45">
+      <input type="range" id="ncv-coverage" min="1" max="1.5" step="0.05" value="1">
     </div>
 
     <div class="ncv-row">
       <div class="ncv-label">
-        <span>Frame Density</span>
-        <span class="ncv-val" id="ncv-tree-count-val">0.38</span>
+        <span>Tree Count</span>
+        <span class="ncv-val" id="ncv-tree-count-val">7</span>
       </div>
-      <input type="range" id="ncv-tree-count" min="0" max="1" step="0.05" value="0.38">
+      <input type="range" id="ncv-tree-count" min="4" max="16" step="1" value="7">
     </div>
 
     <div class="ncv-row">
       <div class="ncv-label">
-        <span>Foliage Mass</span>
-        <span class="ncv-val" id="ncv-density-val">0.42</span>
+        <span>Foliage Density</span>
+        <span class="ncv-val" id="ncv-density-val">0.35</span>
       </div>
-      <input type="range" id="ncv-density" min="0" max="1" step="0.05" value="0.42">
+      <input type="range" id="ncv-density" min="0" max="1" step="0.05" value="0.35">
     </div>
 
     <div class="ncv-row">
       <div class="ncv-label">
-        <span>Branch Reach</span>
+        <span>Branch Length</span>
         <span class="ncv-val" id="ncv-perspective-val">0.72</span>
       </div>
       <input type="range" id="ncv-perspective" min="0" max="1" step="0.05" value="0.72">
@@ -314,6 +346,7 @@
     </div>
 
     <button class="ncv-btn rebuild" id="ncv-rebuild-btn">Reseed Trees</button>
+    <button class="ncv-btn" id="ncv-flock-btn" style="margin-top:8px;width:100%;">Trigger Flock</button>
 
     <div class="ncv-section-title">Audio Atmosphere</div>
 
@@ -393,8 +426,9 @@
   const windSlider    = document.getElementById('ncv-wind');
   const starBrightnessSlider = document.getElementById('ncv-star-brightness');
   const constBrightnessSlider = document.getElementById('ncv-const-brightness');
+  const milkyWaySlider = document.getElementById('ncv-milky-way');
+  const milkyBlurSlider = document.getElementById('ncv-milky-blur');
   const cloudCoverSlider = document.getElementById('ncv-cloud-cover');
-  const skyBlurSlider = document.getElementById('ncv-sky-blur');
   const leafSoftnessSlider = document.getElementById('ncv-leaf-softness');
   const sndMasterSlider = document.getElementById('ncv-snd-master');
   const sndCricketsSlider = document.getElementById('ncv-snd-crickets');
@@ -413,8 +447,9 @@
   const windVal        = document.getElementById('ncv-wind-val');
   const starBrightnessVal = document.getElementById('ncv-star-brightness-val');
   const constBrightnessVal = document.getElementById('ncv-const-brightness-val');
+  const milkyWayVal = document.getElementById('ncv-milky-way-val');
+  const milkyBlurVal = document.getElementById('ncv-milky-blur-val');
   const cloudCoverVal = document.getElementById('ncv-cloud-cover-val');
-  const skyBlurVal = document.getElementById('ncv-sky-blur-val');
   const leafSoftnessVal = document.getElementById('ncv-leaf-softness-val');
   const sndMasterVal = document.getElementById('ncv-snd-master-val');
   const sndCricketsVal = document.getElementById('ncv-snd-crickets-val');
@@ -434,6 +469,7 @@
   const liveLocVal    = document.getElementById('ncv-live-loc-val');
   const liveLocInput  = document.getElementById('ncv-live-loc-input');
   const liveLocApply  = document.getElementById('ncv-live-loc-apply');
+  const citySelect    = document.getElementById('ncv-city-select');
   const depthBtns     = document.querySelectorAll('[data-d]');
   const socketDot     = document.getElementById('ncv-socket-dot');
 
@@ -481,15 +517,23 @@
     emitState();
   });
 
-  cloudCoverSlider.addEventListener('input', () => {
-    env.cloudCover = parseFloat(cloudCoverSlider.value);
-    cloudCoverVal.textContent = env.cloudCover.toFixed(2);
+  milkyWaySlider.addEventListener('input', () => {
+    env.milkyWayIntensity = parseFloat(milkyWaySlider.value);
+    milkyWayVal.textContent = env.milkyWayIntensity.toFixed(2);
+    window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
     emitState();
   });
 
-  skyBlurSlider.addEventListener('input', () => {
-    env.skyBlur = parseFloat(skyBlurSlider.value);
-    skyBlurVal.textContent = env.skyBlur.toFixed(2);
+  milkyBlurSlider.addEventListener('input', () => {
+    env.milkyWayBlur = parseFloat(milkyBlurSlider.value);
+    milkyBlurVal.textContent = env.milkyWayBlur.toFixed(2);
+    window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
+    emitState();
+  });
+
+  cloudCoverSlider.addEventListener('input', () => {
+    env.cloudCover = parseFloat(cloudCoverSlider.value);
+    cloudCoverVal.textContent = env.cloudCover.toFixed(2);
     emitState();
   });
 
@@ -524,6 +568,13 @@
     socket.emit('sim:setLocation', { query: q });
   });
 
+  citySelect.addEventListener('change', () => {
+    const q = citySelect.value.trim();
+    if (!q || typeof socket === 'undefined' || !socket.connected) return;
+    liveLocInput.value = q;
+    socket.emit('sim:setLocation', { query: q });
+  });
+
   if (typeof socket !== 'undefined') {
     socket.on('sim:error', (payload = {}) => {
       liveLocVal.textContent = `Location error: ${payload.message || 'unknown'}`;
@@ -535,12 +586,7 @@
   // ----------------------------------------------------------
   const clamp01 = (v) => Math.max(0, Math.min(1, v));
   function syncDerivedTreeParams() {
-    // Backward-compatible internal params used by canopy.js internals.
-    env.canopyCoverage = clamp01(0.18 + env.treeBranchReach * 0.68);
-    env.canopyTreeCount = clamp01(0.12 + env.treeFrameDensity * 0.88);
-    env.canopyDensity = clamp01(0.10 + env.treeFoliageMass * 0.90);
-    env.branchSpread = clamp01(0.12 + env.treeBranchChaos * 0.82);
-    env.canopyPerspective = clamp01(0.30 + env.treeBranchReach * 0.44);
+    // No longer needed: we use direct tree* properties now.
   }
 
   let treeRebuildTimer = null;
@@ -555,42 +601,44 @@
   coverageSlider.addEventListener('input', () => {
     env.treeSkyOpen = parseFloat(coverageSlider.value);
     coverageVal.textContent = env.treeSkyOpen.toFixed(2);
-    syncDerivedTreeParams();
-    scheduleTreeRebuild();
+    // No rebuild — runtime length multiplier pulls trees toward edges smoothly.
+    emitState();
   });
 
   treeCountSlider.addEventListener('input', () => {
-    env.treeFrameDensity = parseFloat(treeCountSlider.value);
-    treeCountVal.textContent = env.treeFrameDensity.toFixed(2);
-    syncDerivedTreeParams();
-    scheduleTreeRebuild();
+    env.treeFrameDensity = parseInt(treeCountSlider.value, 10);
+    treeCountVal.textContent = treeCountSlider.value;
+    // Incremental add/remove — existing trees stay in place.
+    window._ncvUpdateTreeCount && _ncvUpdateTreeCount();
+    emitState();
   });
 
   densitySlider.addEventListener('input', () => {
     env.treeFoliageMass = parseFloat(densitySlider.value);
     densityVal.textContent = env.treeFoliageMass.toFixed(2);
     syncDerivedTreeParams();
-    scheduleTreeRebuild();
+    emitState();
   });
 
   perspectiveSlider.addEventListener('input', () => {
     env.treeBranchReach = parseFloat(perspectiveSlider.value);
     perspectiveVal.textContent = env.treeBranchReach.toFixed(2);
-    syncDerivedTreeParams();
-    scheduleTreeRebuild();
+    // No rebuild — runtime length multiplier scales existing branches live.
+    emitState();
   });
 
   edgeLushSlider.addEventListener('input', () => {
     env.canopyEdgeLushness = parseFloat(edgeLushSlider.value);
     edgeLushVal.textContent = env.canopyEdgeLushness.toFixed(2);
-    scheduleTreeRebuild();
+    emitState();
   });
 
   spreadSlider.addEventListener('input', () => {
     env.treeBranchChaos = parseFloat(spreadSlider.value);
     spreadVal.textContent = env.treeBranchChaos.toFixed(2);
-    syncDerivedTreeParams();
-    scheduleTreeRebuild();
+    // No rebuild — outer branch chaos jitter applied live at runtime.
+    // Decreasing chaos below built value has no visual effect until next reseed.
+    emitState();
   });
 
   depthBtns.forEach(btn => {
@@ -598,11 +646,17 @@
       env.branchDepth = parseInt(btn.dataset.d, 10);
       depthBtns.forEach(b => b.classList.toggle('active', b === btn));
       scheduleTreeRebuild();
+      emitState();
     });
   });
 
   document.getElementById('ncv-rebuild-btn').addEventListener('click', () => {
     window._ncvRebuildCanopy && _ncvRebuildCanopy();
+    emitState();
+  });
+
+  document.getElementById('ncv-flock-btn').addEventListener('click', () => {
+    window._ncvTriggerFlock && _ncvTriggerFlock();
   });
 
   document.getElementById('ncv-audio-enable-btn').addEventListener('click', function () {
@@ -659,10 +713,12 @@
     starBrightnessVal.textContent = env.starBrightness.toFixed(2);
     constBrightnessSlider.value = env.constellationBrightness;
     constBrightnessVal.textContent = env.constellationBrightness.toFixed(2);
+    milkyWaySlider.value = env.milkyWayIntensity ?? 1.0;
+    milkyWayVal.textContent = (env.milkyWayIntensity ?? 1.0).toFixed(2);
+    milkyBlurSlider.value = env.milkyWayBlur ?? 1.0;
+    milkyBlurVal.textContent = (env.milkyWayBlur ?? 1.0).toFixed(2);
     cloudCoverSlider.value = env.cloudCover;
     cloudCoverVal.textContent = env.cloudCover.toFixed(2);
-    skyBlurSlider.value = env.skyBlur;
-    skyBlurVal.textContent = env.skyBlur.toFixed(2);
     leafSoftnessSlider.value = env.leafSoftness;
     leafSoftnessVal.textContent = env.leafSoftness.toFixed(2);
     sndMasterSlider.value = env.soundMaster;
@@ -679,29 +735,27 @@
     sndWindVal.textContent = env.soundWind.toFixed(2);
     sndNightBirdsSlider.value = env.soundNightBirds;
     sndNightBirdsVal.textContent = env.soundNightBirds.toFixed(2);
-    env.treeSkyOpen = env.treeSkyOpen ?? (1 - (env.canopyCoverage ?? 0.45));
-    env.treeFrameDensity = env.treeFrameDensity ?? (env.canopyTreeCount ?? 0.5);
-    env.treeFoliageMass = env.treeFoliageMass ?? (env.canopyDensity ?? 0.45);
-    env.treeBranchReach = env.treeBranchReach ?? (env.canopyCoverage ?? 0.45);
-    env.treeBranchChaos = env.treeBranchChaos ?? (env.branchSpread ?? 0.52);
-    syncDerivedTreeParams();
 
-    coverageSlider.value    = env.treeSkyOpen;
-    coverageVal.textContent = env.treeSkyOpen.toFixed(2);
-    treeCountSlider.value    = env.treeFrameDensity;
-    treeCountVal.textContent = env.treeFrameDensity.toFixed(2);
-    densitySlider.value     = env.treeFoliageMass;
-    densityVal.textContent  = env.treeFoliageMass.toFixed(2);
-    perspectiveSlider.value = env.treeBranchReach;
-    perspectiveVal.textContent = env.treeBranchReach.toFixed(2);
-    edgeLushSlider.value = env.canopyEdgeLushness;
-    edgeLushVal.textContent = env.canopyEdgeLushness.toFixed(2);
-    spreadSlider.value      = env.treeBranchChaos;
-    spreadVal.textContent  = env.treeBranchChaos.toFixed(2);
+    coverageSlider.value    = env.treeSkyOpen ?? 1.0;
+    coverageVal.textContent = (env.treeSkyOpen ?? 1.0).toFixed(2);
+    treeCountSlider.value    = Math.round(env.treeFrameDensity ?? 7);
+    treeCountVal.textContent = treeCountSlider.value;
+    densitySlider.value     = env.treeFoliageMass ?? 0.35;
+    densityVal.textContent  = (env.treeFoliageMass ?? 0.35).toFixed(2);
+    perspectiveSlider.value = env.treeBranchReach ?? 0.45;
+    perspectiveVal.textContent = (env.treeBranchReach ?? 0.45).toFixed(2);
+    edgeLushSlider.value = env.canopyEdgeLushness ?? 0.75;
+    edgeLushVal.textContent = (env.canopyEdgeLushness ?? 0.75).toFixed(2);
+    spreadSlider.value      = env.treeBranchChaos ?? 0.52;
+    spreadVal.textContent  = (env.treeBranchChaos ?? 0.52).toFixed(2);
+    
     weatherBtns.forEach(b => b.classList.toggle('active', b.dataset.w === env.currentWeather));
     simModeBtns.forEach(b => b.classList.toggle('active', b.dataset.sm === (env.simulationMode || 'manual')));
     liveLocVal.textContent = env.liveLocationName || 'New Haven, CT';
     if (env.liveLocationName) liveLocInput.value = env.liveLocationName;
+    const loc = (env.liveLocationName || '').toLowerCase();
+    const match = Array.from(citySelect.options).find(o => o.dataset.match && loc.includes(o.dataset.match));
+    citySelect.value = match ? match.value : '';
     depthBtns.forEach(b   => b.classList.toggle('active', parseInt(b.dataset.d) === env.branchDepth));
   };
 

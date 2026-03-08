@@ -80,7 +80,7 @@ class Bird {
     this.flightSpeed = isHop ? random(0.030, 0.055) : random(0.014, 0.025);
     this.flapRate    = 0.22;
     // Arc height proportional to distance — short hops arc less
-    const d = dist(fromX, fromY, toNode.endX, toNode.endY);
+    const d = dist(fromX, fromY, toNode.x, toNode.y);
     this.arcHeight   = d * random(0.22, 0.42);
   }
 
@@ -88,8 +88,8 @@ class Bird {
     this.state      = 'PERCHED';
     this.perchNode  = node;
     this.flightTarget = null;
-    this.x          = node.endX;
-    this.y          = node.endY;
+    this.x          = node.x;
+    this.y          = node.y;
     this.perchTimer = floor(random(220, 700));
     this.flapRate   = 0;
   }
@@ -126,7 +126,7 @@ class Bird {
     this.flightT = min(1, this.flightT + this.flightSpeed);
     const t  = this.flightT;
     const fx = this.flightFrom.x,   fy = this.flightFrom.y;
-    const tx = this.flightTarget.endX, ty = this.flightTarget.endY;
+    const tx = this.flightTarget.x, ty = this.flightTarget.y;
 
     // Quadratic bezier arc (mid-point pushed upward)
     const midX = lerp(fx, tx, 0.5);
@@ -141,10 +141,19 @@ class Bird {
   }
 
   _updatePerched() {
-    // Follow the branch as it sways — branch updates its endX/Y each frame
+    // Follow the branch as it sways — recalculate exact bezier position from
+    // the branch node (updated every frame by canopy._updateNode) and our t value.
     if (this.perchNode) {
-      this.x = this.perchNode.endX;
-      this.y = this.perchNode.endY;
+      const bn = this.perchNode.branch;
+      const t  = this.perchNode.t;
+      if (bn !== undefined && t !== undefined) {
+        const mt = 1 - t;
+        this.x = mt*mt*bn.startX + 2*mt*t*bn.sagX + t*t*bn.endX;
+        this.y = mt*mt*bn.startY + 2*mt*t*bn.sagY + t*t*bn.endY;
+      } else {
+        this.x = this.perchNode.x;
+        this.y = this.perchNode.y;
+      }
     }
 
     // Occasional head bob
@@ -268,17 +277,38 @@ class Bird {
 // Bat — erratic Perlin-steered flier, unchanged from Phase 2
 // ===========================================================
 class Bat {
-  constructor() {
-    this.pos       = createVector(random(width * 0.2, width * 0.8),
-                                  random(height * 0.2, height * 0.7));
-    this.vel       = p5.Vector.random2D().mult(random(1.5, 3.5));
+  constructor(opts = {}) {
+    this.mode      = opts.mode || 'wander';
+    this.pos       = createVector(
+      opts.x ?? random(width * 0.2, width * 0.8),
+      opts.y ?? random(height * 0.2, height * 0.7),
+    );
+    this.vel       = createVector(opts.vx ?? 0, opts.vy ?? 0);
+    if (this.vel.magSq() < 0.1) this.vel = p5.Vector.random2D().mult(random(1.5, 3.5));
     this.flapPhase = random(TWO_PI);
-    this.size      = random(16, 28);
+    this.size      = opts.size ?? random(16, 28);
     this.noiseOff  = random(2000);
     this.noiseSpd  = random(0.018, 0.032);
+    this.shouldRemove = false;
+    this.life = opts.life ?? floor(random(420, 920));
   }
 
   update() {
+    if (this.mode === 'cross') {
+      const angle = noise(this.pos.x * 0.0024, this.pos.y * 0.0024,
+                          frameCount * this.noiseSpd + this.noiseOff) * TWO_PI * 2;
+      this.vel.add(p5.Vector.fromAngle(angle).mult(0.05)).limit(4.4);
+      this.pos.add(this.vel);
+      this.flapPhase += 0.34;
+      this.life--;
+      if (this.life <= 0 ||
+          this.pos.x < -140 || this.pos.x > width + 140 ||
+          this.pos.y < -140 || this.pos.y > height + 140) {
+        this.shouldRemove = true;
+      }
+      return;
+    }
+
     const angle = noise(this.pos.x * 0.003, this.pos.y * 0.003,
                         frameCount * this.noiseSpd + this.noiseOff) * TWO_PI * 3;
     this.vel.add(p5.Vector.fromAngle(angle).mult(0.12)).limit(3.5);
@@ -315,35 +345,45 @@ class Bat {
 class CreatureFlock {
   constructor() {
     this.birds = [];
-    this.bats  = Array.from({ length: 2 }, () => new Bat());
+    this.bats  = Array.from({ length: 2 }, () => new Bat({ mode: 'wander' }));
 
     // Timers in frames (@60 fps)
     this.flockInTimer = 30;                          // first flock arrives quickly
     this.spookTimer   = floor(random(28, 55) * 60);
+    this.batGroupTimer = floor(random(9, 17) * 60);
   }
 
   // ----------------------------------------------------------
   update() {
     // Remove birds that have flown off screen
     this.birds = this.birds.filter(b => !b.shouldRemove);
+    this.bats  = this.bats.filter(b => !b.shouldRemove);
 
     const perched = this.birds.filter(b => b.state === 'PERCHED').length;
     const total   = this.birds.length;
+    const t = env.timeOfDay;
+    const isNight = t < 6.5 || t > 20.5;
+    const isSunset = t >= 17.4 && t <= 20.3;
+    const isEarlyNight = (t >= 20.5 && t <= 23.9) || (t >= 4.7 && t <= 6.3);
+    const isStorm = env.currentWeather === 'storm';
+    const cloudCover = constrain(env.cloudCover ?? 0.28, 0, 1);
+    const blockFlocksForCloud = cloudCover >= 0.42;   // stop new arrivals before sky gets heavy
+    const clearOutForCloud = cloudCover >= 0.56;      // force departure before dense overcast
 
     // --- Flock-in event ---
     this.flockInTimer--;
     if (this.flockInTimer <= 0) {
-      if (total < 5 && canopy && canopy.perchNodes.length > 0) {
+      if (!isNight && !isStorm && !blockFlocksForCloud && total < 5 && canopy && canopy.perchNodes.length > 0) {
         this._triggerFlockIn();
       }
       // Schedule next flock-in whether or not this one fired
-      this.flockInTimer = floor(random(18, 40) * 60);
+      this.flockInTimer = floor(this._nextBirdFlockDelaySec(isSunset) * 60);
     }
 
     // --- Spook event ---
     this.spookTimer--;
     if (this.spookTimer <= 0) {
-      if (perched >= 2) {
+      if (!isNight && perched >= 2) {
         this._triggerSpook();
         // Schedule a new flock-in shortly after the scatter
         this.flockInTimer = floor(random(6, 14) * 60);
@@ -351,13 +391,68 @@ class CreatureFlock {
       this.spookTimer = floor(random(30, 60) * 60);
     }
 
+    if (isStorm && this.birds.length > 0) {
+      this._triggerSpook();
+      this.flockInTimer = floor(random(25, 45) * 60);
+    }
+    if (clearOutForCloud && this.birds.length > 0) {
+      this._triggerSpook();
+      this.flockInTimer = floor(random(20, 40) * 60);
+    }
+
     for (const b of this.birds) b.update();
 
     // Bat population: grow at night, trim by day
-    const isNight = env.timeOfDay < 5 || env.timeOfDay > 21;
-    if (isNight && this.bats.length < 4 && random() < 0.002) this.bats.push(new Bat());
-    if (!isNight && this.bats.length > 2) this.bats.pop();
+    const roamers = this.bats.filter(b => b.mode !== 'cross').length;
+    if (isNight && roamers < 4 && random() < 0.0023) this.bats.push(new Bat({ mode: 'wander' }));
+    if (!isNight && roamers > 2) {
+      const idx = this.bats.findIndex(b => b.mode !== 'cross');
+      if (idx >= 0) this.bats.splice(idx, 1);
+    }
+
+    this.batGroupTimer--;
+    if (isEarlyNight && this.batGroupTimer <= 0) {
+      this._spawnBatGroup();
+      this.batGroupTimer = floor(random(8, 16) * 60);
+    } else if (!isEarlyNight && this.batGroupTimer <= 0) {
+      this.batGroupTimer = floor(random(18, 35) * 60);
+    }
+
     for (const b of this.bats) b.update();
+  }
+
+  _nextBirdFlockDelaySec(isSunset) {
+    if (isSunset) return random(8, 18);
+    return random(20, 44);
+  }
+
+  _spawnBatGroup() {
+    const count = floor(random(4, 10));
+    const fromLeft = random() < 0.5;
+    const sx = fromLeft ? -90 : width + 90;
+    const syBase = random(height * 0.20, height * 0.64);
+    const moon = window._ncvMoonState || { visible: false };
+    const targetX = moon.visible && random() < 0.68
+      ? moon.x + random(-26, 26)
+      : (fromLeft ? width + 80 : -80);
+    const targetY = moon.visible && random() < 0.68
+      ? moon.y + random(-20, 22)
+      : random(height * 0.18, height * 0.66);
+
+    for (let i = 0; i < count; i++) {
+      const px = sx + random(-28, 28);
+      const py = syBase + random(-34, 34);
+      const dir = createVector(targetX - px, targetY - py).normalize().mult(random(2.3, 4.1));
+      this.bats.push(new Bat({
+        mode: 'cross',
+        x: px,
+        y: py,
+        vx: dir.x + random(-0.45, 0.45),
+        vy: dir.y + random(-0.45, 0.45),
+        size: random(18, 30),
+        life: floor(random(320, 640)),
+      }));
+    }
   }
 
   // ----------------------------------------------------------

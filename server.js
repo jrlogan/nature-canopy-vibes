@@ -62,7 +62,7 @@ function mapWeatherCode(code = 0) {
 async function fetchLiveWeather() {
   const lat = environmentState.liveLocationLat;
   const lon = environmentState.liveLocationLon;
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,weather_code,cloud_cover,wind_speed_10m,is_day,time&timezone=America%2FNew_York`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,weather_code,cloud_cover,wind_speed_10m,is_day,time&timezone=auto`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`live weather fetch failed: ${res.status}`);
   const data = await res.json();

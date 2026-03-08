@@ -45,10 +45,12 @@ socket.on('remote:command', (payload = {}) => {
 // EnvironmentManager
 // ----------------------------------------------------------
 const EnvironmentManager = {
-  timeOfDay:      21.2,
+  timeOfDay:      (new Date().getHours() + new Date().getMinutes() / 60),
   windSpeed:      0.22,
   currentWeather: 'clear',
   starBrightness: 1.1,  // 0–2: global night-star intensity
+  milkyWayIntensity: 1.0, // 0–2: dedicated Milky Way intensity
+  milkyWayBlur: 1.0, // 0–2: dedicated Milky Way blur multiplier
   constellationBrightness: 1.0, // 0–2: constellation line/label intensity
   cloudCover: 0.28, // 0–1
   skyBlur: 1.0, // 0–6 px blur for moon halo/cloud softness
@@ -65,14 +67,14 @@ const EnvironmentManager = {
   soundNightBirds: 0.25,
 
   // Tree configuration — changes take effect after canopy.rebuild()
-  treeSkyOpen: 0.72,     // 0–1: open sky in center
-  treeFrameDensity: 0.64, // 0–1: amount of canopy around perimeter
-  treeFoliageMass: 0.52,  // 0–1: amount of foliage per branch network
+  treeSkyOpen: 1.0,      // 1.0–1.5: open sky in center
+  treeFrameDensity: 7,    // integer tree count (4–16)
+  treeFoliageMass: 0.35,  // 0–1: amount of foliage per branch network
   treeBranchReach: 0.46,  // 0–1: how far branches reach inward
   treeBranchChaos: 0.52,  // 0–1: straight vs irregular branching
   canopyCoverage: 0.45,  // 0–1: reach from edges toward center
   canopyTreeCount: 0.38, // 0–1: sparse tree count → dense forest count
-  canopyDensity:  0.42,   // 0–1: 0=bare branches, 1=overwhelming leaves
+  canopyDensity:  0.35,   // 0–1: 0=bare branches, 1=overwhelming leaves
   canopyPerspective: 0.72, // 0–1: flat silhouette → strong look-up depth cue
   canopyEdgeLushness: 0.75, // 0–1: neutral foliage → lush green edge frame
   branchSpread:   0.62,   // 0–1: 0=tight/columnar, 1=wide/spreading
@@ -99,6 +101,8 @@ const EnvironmentManager = {
       windSpeed:      this.windSpeed,
       currentWeather: this.currentWeather,
       starBrightness: this.starBrightness,
+      milkyWayIntensity: this.milkyWayIntensity,
+      milkyWayBlur: this.milkyWayBlur,
       constellationBrightness: this.constellationBrightness,
       cloudCover: this.cloudCover,
       skyBlur: this.skyBlur,
@@ -135,8 +139,9 @@ const env = EnvironmentManager;
 // ----------------------------------------------------------
 // Globals — subsystems
 // ----------------------------------------------------------
-let starField, canopy, flock, atmosphere;
+let starField, canopy, flock, atmosphere, murmuration;
 let showDebug = true;
+let projectionEdgeMask = null;
 const perfState = {
   smoothFps: 60,
   qualityScale: 1,
@@ -148,6 +153,10 @@ window._ncvDebugVisible = true;
 window._ncvToggleDebug  = () => { showDebug = !showDebug; window._ncvDebugVisible = showDebug; };
 // Called by controls.js when branch config changes require a canopy rebuild
 window._ncvRebuildCanopy = () => { canopy && canopy.rebuild(); };
+// Incremental tree count — adds/removes without full rebuild
+window._ncvUpdateTreeCount = () => { canopy && canopy.updateTreeCount(env.treeFrameDensity); };
+// Trigger an immediate murmuration flock at a random distance
+window._ncvTriggerFlock = () => { murmuration && murmuration.triggerFlock(); };
 window._ncvInvalidateSkyCache = () => { starField && starField.invalidateCache(); };
 window._ncvEnableAudio = () => { atmosphere && atmosphere.enableAudio(); };
 
@@ -159,12 +168,20 @@ function setup() {
   createCanvas(windowWidth, windowHeight);
   colorMode(RGB, 255, 255, 255, 255);
   textFont('monospace');
+  pixelDensity(1);
 
-  starField = new StarField();
-  atmosphere = new AtmosphereSystem();
+  starField    = new StarField();
+  murmuration  = new MurmurationSystem();
+  atmosphere   = new AtmosphereSystem();
   window.atmosphere = atmosphere;
+
+  // Enable audio on first user interaction (browser autoplay policy requires a gesture).
+  const _enableAudioOnce = () => { atmosphere && atmosphere.enableAudio(); };
+  document.addEventListener('click',   _enableAudioOnce, { once: true });
+  document.addEventListener('keydown', _enableAudioOnce, { once: true });
   canopy    = new Canopy();
   flock     = new CreatureFlock();
+  rebuildProjectionEdgeMask();
 }
 
 
@@ -193,15 +210,18 @@ function draw() {
   atmosphere.drawSky();
 
   // --- Update phase ---
-  canopy.update();   // must precede flock.update() — provides perchNodes
+  murmuration.update();  // distant background flocks
+  canopy.update();       // must precede flock.update() — provides perchNodes
   flock.update();
   window._ncvBirdOccluders = flock.getOccluders();
 
   // --- Render phase (back → front) ---
-  flock.drawBackLayer(); // birds partially behind foliage
+  murmuration.draw();    // distant flocks in open sky, behind everything
+  flock.drawBackLayer(); // perching birds partially behind foliage
   canopy.draw();         // branches + leaves
   flock.drawFrontLayer();// birds/bats in front
   atmosphere.drawOverlay();
+  drawProjectionEdgeFade();
 
   if (showDebug) drawDebugHUD();
 }
@@ -215,6 +235,59 @@ function windowResized() {
   starField.resize();
   atmosphere.resize();
   canopy.resize();
+  rebuildProjectionEdgeMask();
+}
+
+function drawProjectionEdgeFade() {
+  if (projectionEdgeMask) image(projectionEdgeMask, 0, 0, width, height);
+}
+
+function rebuildProjectionEdgeMask() {
+  projectionEdgeMask = createGraphics(width, height);
+  projectionEdgeMask.pixelDensity(1);
+  projectionEdgeMask.loadPixels();
+
+  const w = projectionEdgeMask.width;
+  const h = projectionEdgeMask.height;
+  const shortSide = min(w, h);
+  const baseBand = shortSide * 0.045;     // tight fade along straight edges
+  const cornerBonus = shortSide * 0.09;   // extra depth near corners
+  const cornerReach = shortSide * 0.30;
+  const jitterAmp = shortSide * 0.012;
+  const noiseScale = 0.012;
+  const seed = random(10000);
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const edgeDist = min(x, w - 1 - x, y, h - 1 - y);
+      const nearestCorner = min(
+        dist(x, y, 0, 0),
+        dist(x, y, w - 1, 0),
+        dist(x, y, 0, h - 1),
+        dist(x, y, w - 1, h - 1)
+      );
+      const cornerFactor = 1 - constrain(nearestCorner / cornerReach, 0, 1);
+      const jitter = map(
+        noise(seed + x * noiseScale, seed + y * noiseScale),
+        0,
+        1,
+        -jitterAmp,
+        jitterAmp
+      );
+      const band = max(1, baseBand + cornerFactor * cornerBonus + jitter);
+      const t = constrain(edgeDist / band, 0, 1);
+      const softness = t * t * (3 - 2 * t); // smoothstep
+      const alpha = Math.round(255 * (1 - softness));
+
+      const idx = 4 * (x + y * w);
+      projectionEdgeMask.pixels[idx + 0] = 0;
+      projectionEdgeMask.pixels[idx + 1] = 0;
+      projectionEdgeMask.pixels[idx + 2] = 0;
+      projectionEdgeMask.pixels[idx + 3] = alpha;
+    }
+  }
+
+  projectionEdgeMask.updatePixels();
 }
 
 
@@ -277,6 +350,8 @@ function drawDebugHUD() {
     ['windSpeed',          env.windSpeed.toFixed(3)           ],
     ['currentWeather',     env.currentWeather                 ],
     ['starBrightness',     env.starBrightness.toFixed(2)      ],
+    ['milkyWay',           (env.milkyWayIntensity ?? 1).toFixed(2)],
+    ['milkyBlur',          (env.milkyWayBlur ?? 1).toFixed(2)],
     ['constellations',     env.constellationBrightness.toFixed(2) ],
     ['cloudCover',         env.cloudCover.toFixed(2)          ],
     ['skyBlur',           env.skyBlur.toFixed(2)             ],
