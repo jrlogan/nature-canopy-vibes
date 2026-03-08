@@ -4,6 +4,7 @@ const statusEl = document.getElementById('status');
 const logEl = document.getElementById('log');
 const cityBtnEls = Array.from(document.querySelectorAll('.city-btn'));
 const btnSkyLabels = document.getElementById('btn-sky-labels');
+const btnSleep = document.getElementById('btn-sleep');
 const infoTimeEl = document.getElementById('info-time');
 const infoSeasonEl = document.getElementById('info-season');
 const infoWeatherEl = document.getElementById('info-weather');
@@ -116,6 +117,11 @@ socket.on('env:sync', (state) => {
   skyLabelsOn = !!state.showConstellationLabels && !!state.showConstellations;
   btnSkyLabels.classList.toggle('on', skyLabelsOn);
   btnSkyLabels.textContent = `Constellations & Labels: ${skyLabelsOn ? 'ON' : 'OFF'}`;
+  
+  const isSleeping = !!state.sleeping;
+  btnSleep.textContent = isSleeping ? 'Display: OFF' : 'Display: ON';
+  btnSleep.style.background = isSleeping ? 'linear-gradient(120deg, #6c2121, #511a1a)' : 'linear-gradient(120deg, #26425d, #1a3047)';
+
   activeLocationName = state.liveLocationName || '';
   syncActiveCityButton();
   updateInfoCard(state);
@@ -123,6 +129,12 @@ socket.on('env:sync', (state) => {
   const loc = state.liveLocationName || 'Unknown';
   const trees = Number.isFinite(state.treeFrameDensity) ? Math.round(state.treeFrameDensity) : 'n/a';
   setLog(`Synced: ${loc} • ${hour}h • trees ${trees}`);
+});
+
+let currentSleep = false;
+btnSleep.addEventListener('click', () => {
+  currentSleep = !currentSleep;
+  sendCommand('toggle_sleep', `Display ${currentSleep ? 'OFF' : 'ON'}`, { value: currentSleep });
 });
 
 cityBtnEls.forEach((btn) => {

@@ -448,6 +448,9 @@
     <!-- ── Actions ── -->
     <div class="ncv-btn-row">
       <button class="ncv-btn" id="ncv-rand-btn">Randomise</button>
+      <button class="ncv-btn" id="ncv-sleep-btn">Display: ON</button>
+    </div>
+    <div class="ncv-btn-row">
       <button class="ncv-btn" id="ncv-const-btn">Constellations: OFF</button>
       <button class="ncv-btn" id="ncv-debug-btn">Debug: OFF</button>
     </div>
@@ -511,6 +514,7 @@
   const depthBtns     = document.querySelectorAll('[data-d]');
   const socketDot     = document.getElementById('ncv-socket-dot');
   const constBtn      = document.getElementById('ncv-const-btn');
+  const sleepBtn      = document.getElementById('ncv-sleep-btn');
 
   // ----------------------------------------------------------
   // Helpers
@@ -530,6 +534,15 @@
   // ----------------------------------------------------------
   // Environment sliders
   // ----------------------------------------------------------
+  sleepBtn.addEventListener('click', () => {
+    env.sleeping = !env.sleeping;
+    if (typeof socket !== 'undefined' && socket.connected) {
+      socket.emit('remote:command', { command: 'toggle_sleep', data: { value: env.sleeping } });
+    }
+    window._ncvSyncPanel && _ncvSyncPanel();
+    emitState();
+  });
+
   timeSlider.addEventListener('input', () => {
     env.timeOfDay = parseFloat(timeSlider.value);
     timeVal.textContent = fmtTime(env.timeOfDay);
@@ -834,6 +847,10 @@
     constBtn.textContent = window._ncvShowConstellations ? 'Constellations: ON' : 'Constellations: OFF';
     constBtn.style.borderColor = window._ncvShowConstellations ? 'rgba(100, 160, 255, 0.6)' : '';
     constBtn.style.color = window._ncvShowConstellations ? '#c8e8ff' : '';
+
+    const isSleeping = !!env.sleeping;
+    sleepBtn.textContent = isSleeping ? 'Display: OFF' : 'Display: ON';
+    sleepBtn.style.borderColor = isSleeping ? 'rgba(255, 80, 80, 0.5)' : '';
   };
 
   // ----------------------------------------------------------

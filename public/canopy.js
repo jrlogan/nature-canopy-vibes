@@ -1843,9 +1843,11 @@ class Canopy {
     // ----------------------------------------------------------
   _drawLeafPass(layer = 'front') {
     const q = constrain(window._ncvQualityScale ?? 1, 0.45, 1);
+    const isStruggling = !!window._ncvIsStruggling;
 
     // Dynamic resolution based on quality scale — 70% down to 35%
-    const resScale = 0.70 * q;
+    // Even more aggressive if struggling.
+    const resScale = 0.70 * q * (isStruggling ? 0.65 : 1.0);
     const bufW = Math.floor(width  * resScale);
     const bufH = Math.floor(height * resScale);
 
@@ -1859,9 +1861,9 @@ class Canopy {
     g.clear();
     g.noStroke();
 
-    // Occluders — pre-sliced once, bird-physics fully skipped when absent.
+    // Occluders — pre-sliced once, bird-physics fully skipped when absent or struggling.
     const rawOcc    = window._ncvBirdOccluders || [];
-    const hasOcc    = rawOcc.length > 0;
+    const hasOcc    = rawOcc.length > 0 && !isStruggling;
     const occluders = hasOcc ? rawOcc.slice(0, Math.max(2, Math.floor(10 * q))) : [];
 
     // Time-of-day state — identical for every leaf this frame.
@@ -1876,13 +1878,13 @@ class Canopy {
 
     // Stabilized adaptive stepping with hysteresis to prevent pop flicker.
     let targetStep = 1;
-    if (q < 0.56) targetStep = 3;
+    if (q < 0.56 || isStruggling) targetStep = 3;
     else if (q < 0.82) targetStep = 2;
     if (targetStep > this._leafStep) {
       this._leafStep = targetStep;
     } else if (targetStep < this._leafStep) {
       const upThreshold = this._leafStep === 3 ? 0.66 : 0.90;
-      if (q > upThreshold) this._leafStep = targetStep;
+      if (q > upThreshold && !isStruggling) this._leafStep = targetStep;
     }
     const step = this._leafStep;
 
@@ -1911,11 +1913,14 @@ class Canopy {
 
     const softCtrl = constrain(env.leafSoftness ?? 0.6, 0, 4);
     // Tree foliage: keep low softness so branch-attached leaf groups stay defined.
-    const leafSoft = softCtrl <= 0
+    // Skip shadowBlur if struggling.
+    const leafSoft = (softCtrl <= 0 || isStruggling)
       ? 0
       : constrain(Math.pow(softCtrl, 1.30) * (0.30 + q * 0.25), 0, 3.6);
-    g.drawingContext.shadowBlur  = leafSoft;
-    g.drawingContext.shadowColor = `rgba(20,30,20,${(0.18 + leafSoft * 0.022).toFixed(2)})`;
+    if (leafSoft > 0) {
+      g.drawingContext.shadowBlur  = leafSoft;
+      g.drawingContext.shadowColor = `rgba(20,30,20,${(0.18 + leafSoft * 0.022).toFixed(2)})`;
+    }
 
     for (const root of this.trees) {
       this._drawLeavesNode(g, root, br, bg, bb, ba,
@@ -1926,8 +1931,8 @@ class Canopy {
 
     drawingContext.imageSmoothingEnabled = true;
     drawingContext.imageSmoothingQuality = q > 0.8 ? 'medium' : 'low';
-    // Skip costly full-layer blur unless softness is intentionally high.
-    const postBlur = softCtrl < 1.0 ? 0 : constrain(Math.pow(softCtrl, 1.15) * 0.22, 0, 1.2);
+    // Skip costly full-layer blur unless softness is intentionally high and not struggling.
+    const postBlur = (softCtrl < 1.0 || isStruggling) ? 0 : constrain(Math.pow(softCtrl, 1.15) * 0.22, 0, 1.2);
     if (postBlur > 0.05) {
       drawingContext.save();
       drawingContext.filter = `blur(${postBlur.toFixed(2)}px)`;
@@ -1936,8 +1941,7 @@ class Canopy {
     } else {
       image(g, 0, 0, width, height);
     }
-    }
-
+  }
   _drawLeavesNode(g, node, br, bg, bb, ba,
                   isNight, isTwilight, sun, flashK, ft, step, occluders, hasOcc, layer, season) {
     const tStyle = this._treeStyles?.[node.treeId] || { type: 'broadleaf', foliageMul: 1, leafSizeMul: 1, seasonOffset: 0 };

@@ -452,11 +452,12 @@ class CreatureFlock {
     const cloudCover = constrain(env.cloudCover ?? 0.28, 0, 1);
     const blockFlocksForCloud = cloudCover >= 0.42;   // stop new arrivals before sky gets heavy
     const clearOutForCloud = cloudCover >= 0.56;      // force departure before dense overcast
+    const isStruggling = !!window._ncvIsStruggling;
 
     // --- Flock-in event ---
     this.flockInTimer--;
     if (this.flockInTimer <= 0) {
-      if (!isNight && !isStorm && !blockFlocksForCloud && !activeFlock && canopy && canopy.perchNodes.length > 0) {
+      if (!isNight && !isStorm && !blockFlocksForCloud && !isStruggling && !activeFlock && canopy && canopy.perchNodes.length > 0) {
         this._triggerFlockIn();
       }
       // Schedule next flock-in whether or not this one fired
@@ -474,7 +475,7 @@ class CreatureFlock {
       this.spookTimer = floor(random(30, 60) * 60);
     }
 
-    if (isStorm && this.birds.length > 0) {
+    if ((isStorm || isStruggling) && this.birds.length > 0) {
       this._triggerSpook();
       this.flockInTimer = floor(random(25, 45) * 60);
     }
@@ -487,7 +488,7 @@ class CreatureFlock {
 
     // Bat population: grow at night, trim by day
     const hunters = this.bats.filter(b => b.mode === 'hunt_pass').length;
-    if (isNight && hunters < 2 && random() < 0.0013) {
+    if (isNight && hunters < 2 && !isStruggling && random() < 0.0013) {
       this.bats.push(new Bat({
         mode: 'hunt_pass',
         x: random(-80, width + 80),
@@ -504,7 +505,7 @@ class CreatureFlock {
 
     this.batGroupTimer--;
     const hasCommuteGroup = this.bats.some(b => b.mode === 'commute_lead' || b.mode === 'commute_follow');
-    if ((isDusk || isDawn) && this.batGroupTimer <= 0) {
+    if ((isDusk || isDawn) && this.batGroupTimer <= 0 && !isStruggling) {
       if (!hasCommuteGroup) this._spawnBatCommuteGroup(isDawn ? 'inbound' : 'outbound');
       this.batGroupTimer = floor(random(5, 10) * 60);
     } else if (!(isDusk || isDawn) && this.batGroupTimer <= 0) {

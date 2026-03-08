@@ -151,34 +151,100 @@ class AtmosphereSystem {
       }
     }
 
+  _scheduleStrikeGroup() {
+    const now = millis();
+    // env.lightningIntensity is real-world data (0.0 to 1.0).
+    const realIntensity = env.lightningIntensity ?? 0.0;
+    
+    // Calculate distance biased by real intensity: 
+    // High intensity = more overhead strikes, Low intensity = more horizon heat lightning.
+    let distance = Math.random();
+    if (realIntensity > 0.4) {
+      distance *= (1.0 - realIntensity * 0.5); // pull strikes closer
+    } else {
+      distance = lerp(distance, 0.8 + random(0.2), 0.5); // push to horizon
+    }
+
+    this._handleLightningEvent(distance);
+
+    // Succession: close strikes occasionally fire 1–2 follow-ups rapidly.
+    if (distance < 0.2 && Math.random() < (0.35 + realIntensity * 0.3)) {
+      const t1 = now + random(90, 260);
+      this.pendingStrikes.push({ at: t1, distance: distance + random(0.05, 0.15) });
+    }
+
     // Bimodal wait: active cell (short) vs quiet spell (long).
+    // Frequency increases with realIntensity.
+    const isStruggling = !!window._ncvIsStruggling;
+    const struggleMul = isStruggling ? 2.5 : 1.0;
+    const freqMul     = 1.0 / (0.4 + realIntensity * 1.6); // 2.5x faster when intensity is high
+    
     this.nextLightningAt = now + (Math.random() < 0.35
-      ? random(1200, 4500)    // active cell — strikes cluster
-      : random(8000, 24000)); // quiet spell — long silence
+      ? random(1200, 4500) * struggleMul * freqMul
+      : random(8000, 24000) * struggleMul * freqMul);
+  }
+
+  _handleLightningEvent(d) {
+    const isStruggling = !!window._ncvIsStruggling;
+    const now = millis();
+
+    // 1. DISTANCE TIERS
+    if (d < 0.2) {
+      // CLOSE STRIKE
+      const alpha = random(210, 255);
+      this.flashAlpha = max(this.flashAlpha, alpha);
+      
+      const startX = random(width * 0.15, width * 0.85);
+      const targetY = height * random(0.3, 0.7);
+      const maxDepth = isStruggling ? 3 : 4;
+      const segments = this._buildBoltTree(startX, -10, targetY, maxDepth);
+      this.lightningBolts.push({ segments, alpha: 255, weight: random(2.0, 3.2) });
+
+      if (window._ncvSocket?.connected) window._ncvSocket.emit('lightning_strike', { intensity: 1.0, distance: d });
+      this._scheduleThunder(d);
+
+    } else if (d < 0.8) {
+      // DISTANT STRIKE
+      const alpha = map(d, 0.2, 0.8, 160, 60);
+      this.flashAlpha = max(this.flashAlpha, alpha);
+      
+      if (window._ncvSocket?.connected) window._ncvSocket.emit('lightning_strike', { intensity: 0.6, distance: d });
+      this._scheduleThunder(d);
+
+    } else {
+      // HEAT LIGHTNING (d >= 0.8)
+      this.distantFlashAlpha = random(30, 65);
+      this.distantFlashAngle = random(TWO_PI);
+      // Origin for heat lightning is often more localized/central
+      this.heatOriginX = random(width * 0.2, width * 0.8);
+      this.heatOriginY = random(height * 0.1, height * 0.4);
+      this.isHeat = true;
+
+      if (window._ncvSocket?.connected) window._ncvSocket.emit('heat_lightning', { distance: d });
+      // No thunder for heat lightning
+    }
+  }
+
+  _scheduleThunder(d) {
+    // delay: 0.0 -> 0ms, 0.8 -> 5000ms
+    const delayMs = map(d, 0, 0.8, 0, 5000);
+    // volume: 0.0 -> 1.0, 0.8 -> 0.2
+    const volume = map(d, 0, 0.8, 1.0, 0.2);
+
+    setTimeout(() => {
+      if (this.audio) this.audio.playThunder(volume, true); // true = forced immediate (no internal jitter)
+    }, delayMs);
   }
 
   _triggerStrike(type) {
-    if (type === 'distant') this._triggerDistantFlash();
-    else                    this._triggerLocalBolt();
+    // Legacy support: redirect to middle-ground distance
+    this._handleLightningEvent(type === 'distant' ? 0.5 : 0.1);
   }
 
   // ---- local bolt ----
 
   _triggerLocalBolt() {
-    const alpha = random(175, 255);
-    this.flashAlpha  = max(this.flashAlpha, alpha);
-    this._flashPeak  = alpha;
-
-    const startX   = random(width * 0.12, width * 0.88);
-    const targetY  = height * random(0.25, 0.75);
-    const segments = this._buildBoltTree(startX, -10, targetY, 4);
-    this.lightningBolts.push({ segments, alpha: 255, weight: random(1.6, 2.8) });
-
-    if (window._ncvSocket?.connected) window._ncvSocket.emit('lightning_strike');
-
-    const delay     = random(0.08, 0.9);
-    const intensity = constrain(alpha / 255, 0.65, 1.0);
-    setTimeout(() => this.audio.playThunder(intensity), delay * 1000);
+    this._handleLightningEvent(0.1);
   }
 
   // Recursively builds a branching bolt tree.
@@ -331,7 +397,7 @@ class AtmosphereSystem {
     if (alphaBase <= 0.5) return;
 
     // Offscreen buffers for polygon cloud core + wispy blur layer.
-    const resScale = 0.55 * q;
+    const resScale = 0.55 * q * (window._ncvIsStruggling ? 0.65 : 1.0);
     const bufW = Math.ceil(width * resScale);
     const bufH = Math.ceil(height * resScale);
 
@@ -352,6 +418,7 @@ class AtmosphereSystem {
     gCore.scale(resScale);
     gWisp.scale(resScale);
 
+    const isStruggling = !!window._ncvIsStruggling;
     for (const c of this.clouds) {
       const t = noise(c.seed, frameCount * 0.002);
       const cloudDark = env.currentWeather === 'storm' ? 26 : (env.currentWeather === 'rain' ? 58 : 78);
@@ -360,7 +427,9 @@ class AtmosphereSystem {
       const aCore = alphaBase * lerp(0.68, 1.0, t);
       const aWisp = alphaBase * lerp(0.36, 0.62, t);
 
-      const bandCount = Math.max(2, Math.floor(c.flowBands + c.puff * 0.22));
+      let bandCount = Math.max(2, Math.floor(c.flowBands + c.puff * 0.22));
+      if (isStruggling) bandCount = Math.max(1, Math.floor(bandCount * 0.6));
+      
       const flowA = c.flowAngle + Math.sin(frameCount * 0.00045 + c.seed) * 0.10;
       const flowLen = c.size * c.flowLen;
 
@@ -375,22 +444,24 @@ class AtmosphereSystem {
         gCore.fill(shade, shade + 6, shade + 14, aCore * lerp(0.82, 1.0, bandT));
         this._drawCloudRibbon(
           gCore, px, py, flowLen * lerp(0.66, 1.0, bandT), coreThick,
-          flowA + (bandT - 0.5) * 0.18, c.coreSides, c.jag * 0.85, c.seed + i * 17.3
+          flowA + (bandT - 0.5) * 0.18, isStruggling ? Math.floor(c.coreSides * 0.7) : c.coreSides, c.jag * 0.85, c.seed + i * 17.3
         );
 
-        // Wispy flowing shell ribbon.
-        gWisp.fill(shade + 8, shade + 12, shade + 18, aWisp * lerp(0.75, 1.0, bandT));
-        this._drawCloudRibbon(
-          gWisp,
-          px + Math.sin(c.seed + i * 0.8) * 8,
-          py + Math.cos(c.seed * 0.6 + i + frameCount * 0.001) * 5,
-          flowLen * (0.84 + c.wispSpread * 0.45),
-          wispThick,
-          flowA + (bandT - 0.5) * 0.26,
-          c.wispSides,
-          c.jag * 1.45,
-          c.seed + i * 29.7
-        );
+        // Wispy flowing shell ribbon (skipped if really struggling)
+        if (!isStruggling || q > 0.65) {
+          gWisp.fill(shade + 8, shade + 12, shade + 18, aWisp * lerp(0.75, 1.0, bandT));
+          this._drawCloudRibbon(
+            gWisp,
+            px + Math.sin(c.seed + i * 0.8) * 8,
+            py + Math.cos(c.seed * 0.6 + i + frameCount * 0.001) * 5,
+            flowLen * (0.84 + c.wispSpread * 0.45),
+            wispThick,
+            flowA + (bandT - 0.5) * 0.26,
+            isStruggling ? Math.floor(c.wispSides * 0.7) : c.wispSides,
+            c.jag * 1.45,
+            c.seed + i * 29.7
+          );
+        }
       }
     }
     gCore.pop();
@@ -400,9 +471,13 @@ class AtmosphereSystem {
     image(gCore, 0, 0, width, height);
 
     const wispBlurPx = constrain((env.skyBlur ?? 1.2) * (6.6 + cover * 5.6) * q, 0, 32);
-    if (wispBlurPx > 0.05) drawingContext.filter = `blur(${wispBlurPx.toFixed(2)}px)`;
-    image(gWisp, 0, 0, width, height);
-    if (wispBlurPx > 0.05) drawingContext.filter = 'none';
+    if (wispBlurPx > 0.05 && (!isStruggling || q > 0.7)) {
+      drawingContext.filter = `blur(${wispBlurPx.toFixed(2)}px)`;
+      image(gWisp, 0, 0, width, height);
+      drawingContext.filter = 'none';
+    } else if (!isStruggling || q > 0.65) {
+      image(gWisp, 0, 0, width, height);
+    }
   }
 
   _drawCloudRibbon(g, cx, cy, len, thick, angle, segments, jag, seed) {
@@ -776,15 +851,24 @@ class AtmosphereSystem {
     return ((days % synodicMonth) + synodicMonth) % synodicMonth / synodicMonth;
   }
 
-  // Soft edge-glow for distant lightning — no bolt, just sky illumination.
   _drawDistantFlash() {
     if (this.distantFlashAlpha <= 1) return;
-    const a   = this.distantFlashAlpha;
-    const ang = this.distantFlashAngle;
-    // Source sits off-screen on whichever edge the angle points to.
-    const sx  = width  * 0.5 + Math.cos(ang) * width  * 0.85;
-    const sy  = height * 0.5 + Math.sin(ang) * height * 0.85;
-    const r   = Math.max(width, height) * 0.72;
+    const a = this.distantFlashAlpha;
+    
+    let sx, sy, r;
+    if (this.isHeat && this.heatOriginX !== undefined) {
+      // Localized cloud glow
+      sx = this.heatOriginX;
+      sy = this.heatOriginY;
+      r = Math.max(width, height) * 0.35;
+    } else {
+      // Edge-based horizon flash
+      const ang = this.distantFlashAngle;
+      sx = width * 0.5 + Math.cos(ang) * width * 0.85;
+      sy = height * 0.5 + Math.sin(ang) * height * 0.85;
+      r = Math.max(width, height) * 0.72;
+    }
+
     const grad = drawingContext.createRadialGradient(sx, sy, 0, sx, sy, r);
     grad.addColorStop(0,   `rgba(215,232,255,${(a/255*0.55).toFixed(3)})`);
     grad.addColorStop(0.38,`rgba(200,222,255,${(a/255*0.22).toFixed(3)})`);
@@ -793,6 +877,9 @@ class AtmosphereSystem {
     drawingContext.fillStyle = grad;
     drawingContext.fillRect(0, 0, width, height);
     drawingContext.restore();
+
+    // Reset heat state once alpha is very low
+    if (a < 2) this.isHeat = false;
   }
 
   // Draw all active bolts — each fades independently.
@@ -954,13 +1041,13 @@ class AtmosphereAudio {
     }
   }
 
-  playThunder(intensity = 1) {
+  playThunder(intensity = 1, isImmediate = false) {
     if (!this.enabled || !this.ctx) return;
     const lvl = constrain(env.soundThunder ?? 0.6, 0, 1);
     if (lvl <= 0.01) return;
 
-    // Keep thunder perceptibly linked to the flash, but still natural.
-    const delay = random(0.25, 1.15);
+    // isImmediate=true means we've already handled the delay via scientific mapping.
+    const delay = isImmediate ? 0 : random(0.25, 1.15);
     const t0 = this.ctx.currentTime + delay;
     const power = lvl * intensity;
 

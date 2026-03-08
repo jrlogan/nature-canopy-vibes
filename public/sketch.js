@@ -58,6 +58,12 @@ socket.on('env:sync', (state) => {
 });
 socket.on('remote:command', (payload = {}) => {
   switch (payload.command) {
+    case 'toggle_sleep':
+      env.sleeping = !!(payload.data && payload.data.value);
+      if (env.sleeping) {
+        atmosphere && atmosphere.audio && atmosphere.audio.master && (atmosphere.audio.master.gain.value = 0);
+      }
+      break;
     case 'trigger_storm':
       env.currentWeather = 'storm';
       break;
@@ -295,6 +301,7 @@ function draw() {
     perfState.qualityScale = 1;
   }
   window._ncvQualityScale = perfState.qualityScale;
+  window._ncvIsStruggling = perfState.qualityScale < 0.82 || perfState.smoothFps < 30;
 
   background(skyColor());
   starField.updateCache();
@@ -320,8 +327,18 @@ function draw() {
   atmosphere.drawOverlay();
   drawProjectionEdgeFade();
   drawLocationTransitionOverlay();
+  drawSleepOverlay();
 
   if (showDebug) drawDebugHUD();
+}
+
+function drawSleepOverlay() {
+  if (!env.sleeping) return;
+  push();
+  noStroke();
+  fill(0, 0, 0, 255);
+  rect(0, 0, width, height);
+  pop();
 }
 
 

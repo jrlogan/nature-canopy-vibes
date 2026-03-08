@@ -57,9 +57,29 @@ const environmentState = {
   liveLocationLat: 41.3083,
   liveLocationLon: -72.9279,
   performanceMode: 'auto',
+  sleeping: false,
+  lightningIntensity: 0.0, // 0.0 to 1.0 based on real-world data
 };
 
 let lastLiveFetchAt = 0;
+
+const { exec } = require('child_process');
+function setDisplayPower(on) {
+  console.log(`[power] Setting display power: ${on ? 'ON' : 'OFF'}`);
+  // Try DPMS (X11)
+  exec(on ? 'xset dpms force on' : 'xset dpms force off', (err) => {
+    if (err) {
+      // Fallback: Try vcgencmd (Raspberry Pi legacy)
+      exec(`vcgencmd display_power ${on ? 1 : 0}`, (err2) => {
+        if (err2) {
+          // Fallback: Try wayland/wlr-randr or similar if needed, 
+          // but for now we'll just log and rely on the web overlay.
+          console.log('[power] Hardware display control not available or failed.');
+        }
+      });
+    }
+  });
+}
 
 function clamp01(n) {
   return Math.max(0, Math.min(1, n));
@@ -149,11 +169,29 @@ function refreshDerivedLiveFields() {
 async function fetchLiveWeather() {
   const lat = environmentState.liveLocationLat;
   const lon = environmentState.liveLocationLon;
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,weather_code,cloud_cover,wind_speed_10m,is_day,time&timezone=auto`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,weather_code,cloud_cover,wind_speed_10m,is_day,time&minutely_15=lightning_potential,cape&timezone=auto`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`live weather fetch failed: ${res.status}`);
   const data = await res.json();
   const cur = data.current || {};
+  const m15 = data.minutely_15 || {};
+
+  // Extract latest (first) 15-minute slot values
+  const lpi  = (m15.lightning_potential || [])[0] || 0;
+  const cape = (m15.cape || [])[0] || 0;
+
+  // LPI (Lightning Potential Index) is 0–100% in models like ICON/HRRR.
+  // CAPE (Convective Available Potential Energy) is 0–3000+ J/kg.
+  // We'll blend them: if LPI is high, intensity is high. If LPI is null/0, use CAPE as a proxy.
+  let intensity = 0.0;
+  if (lpi > 0) {
+    intensity = clamp01(lpi / 100);
+  } else if (cape > 0) {
+    // CAPE thresholds: 500 (weak), 1500 (moderate), 2500+ (extreme)
+    intensity = clamp01(cape / 2500);
+  }
+  environmentState.lightningIntensity = intensity;
+
   if (typeof cur.time === 'string' && cur.time.length >= 16) {
     const hh = Number(cur.time.slice(11, 13));
     const mm = Number(cur.time.slice(14, 16));
@@ -363,6 +401,32 @@ async function simulationTick() {
 // ----------------------------------------------------------
 app.use(express.static(path.join(__dirname, 'public')));
 
+let autoSleepTimeout = null;
+
+app.get('/trigger_motion', (req, res) => {
+  const durationSec = parseInt(req.query.duration) || 300; // default 5 min
+  console.log(`[motion] Motion detected! Waking for ${durationSec}s...`);
+
+  if (autoSleepTimeout) clearTimeout(autoSleepTimeout);
+
+  if (environmentState.sleeping) {
+    environmentState.sleeping = false;
+    setDisplayPower(true);
+    io.emit('env:sync', environmentState);
+    io.emit('remote:command', { command: 'toggle_sleep', data: { value: false } });
+  }
+
+  autoSleepTimeout = setTimeout(() => {
+    console.log('[motion] Timeout reached. Returning to sleep.');
+    environmentState.sleeping = true;
+    setDisplayPower(false);
+    io.emit('env:sync', environmentState);
+    io.emit('remote:command', { command: 'toggle_sleep', data: { value: true } });
+  }, durationSec * 1000);
+
+  res.json({ status: 'waking', duration: durationSec });
+});
+
 // ----------------------------------------------------------
 // Socket.io — WebSocket layer
 // Each browser tab that loads the page opens one socket.
@@ -428,6 +492,11 @@ io.on('connection', (socket) => {
     if (!command) return;
 
     switch (command) {
+      case 'toggle_sleep':
+        const nextSleep = data.value !== undefined ? !!data.value : !environmentState.sleeping;
+        environmentState.sleeping = nextSleep;
+        setDisplayPower(!nextSleep);
+        break;
       case 'set_location': {
         try {
           const lat = Number(data.lat);

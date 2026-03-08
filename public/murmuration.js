@@ -371,7 +371,8 @@ class MurmurationSystem {
     const cloudCover = constrain(env.cloudCover ?? 0.28, 0, 1);
     const blockForCloud = cloudCover >= 0.42;
     const clearOutForCloud = cloudCover >= 0.56;
-    const isActive = tod >= 6.2 && tod <= 20.5 && env.currentWeather !== 'storm' && !blockForCloud;
+    const isStruggling = !!window._ncvIsStruggling;
+    const isActive = tod >= 6.2 && tod <= 20.5 && env.currentWeather !== 'storm' && !blockForCloud && !isStruggling;
     const now      = millis();
 
     // One active swarm at a time.
@@ -383,8 +384,8 @@ class MurmurationSystem {
       const isSunset = tod >= 17.5 && tod <= 20.25;
       this.nextSpawn = now + (isSunset ? random(12000, 32000) : random(32000, 110000));
     } else if (!isActive && this.swarms.length > 0) {
-      // Disperse active swarms quickly when night/storm/cloud build-up arrives.
-      const disperseStep = clearOutForCloud ? 9 : 5;
+      // Disperse active swarms quickly when night/storm/cloud build-up arrives or when struggling.
+      const disperseStep = (clearOutForCloud || isStruggling) ? 9 : 5;
       for (const s of this.swarms) s.age += disperseStep;
       this.nextSpawn = now + random(22000, 52000);
     }
@@ -478,12 +479,13 @@ class GooseMigrationSystem {
     const season = this._seasonKey();
     const supports = this._locationSupportsMigration();
     const storm = env.currentWeather === 'storm';
+    const isStruggling = !!window._ncvIsStruggling;
     const now = millis();
 
-    if (season === 'fall' && supports && !isNight && !storm && now >= this.nextSpawn && this.formations.length < 1) {
+    if (season === 'fall' && supports && !isNight && !storm && !isStruggling && now >= this.nextSpawn && this.formations.length < 1) {
       this._spawnFormation();
       this.nextSpawn = now + random(36000, 88000);
-    } else if (!(season === 'fall' && supports) || storm || isNight) {
+    } else if (!(season === 'fall' && supports) || storm || isNight || isStruggling) {
       this.nextSpawn = now + random(26000, 70000);
     }
 
