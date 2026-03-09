@@ -3,7 +3,7 @@
     return; // Real socket.io is loaded, do nothing
   }
 
-  console.log('[standalone] Socket.io not found. Initialising standalone mode.');
+  console.log('[standalone] Socket.io not found. Initialising standalone mode. supabase SDK:', typeof supabase !== 'undefined' ? 'loaded' : 'MISSING');
 
   const hasBroadcastChannel = typeof BroadcastChannel !== 'undefined';
   const channel = hasBroadcastChannel ? new BroadcastChannel('nature-canopy-vibes') : null;
