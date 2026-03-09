@@ -94,6 +94,25 @@
   <script src="controls.js"></script>
 
   <!-- 6. Main sketch — initialises everything, runs the render loop -->
+  <!-- Safety net: standalone.js should have set window.io, but if anything prevented
+       it from running (CSP, network error, etc.) this guarantees io() never throws. -->
+  <script>
+    if (!window.io) {
+      window.io = function() {
+        var ev = {};
+        var sock = {
+          id: 'offline', connected: false,
+          on:   function(e, cb) { (ev[e] = ev[e] || []).push(cb); },
+          emit: function() {}
+        };
+        // Fire 'connect' asynchronously so sketch.js behaves like it connected
+        setTimeout(function() {
+          (ev['connect'] || []).forEach(function(cb) { try { cb(); } catch(e) {} });
+        }, 50);
+        return sock;
+      };
+    }
+  </script>
   <script src="sketch.js"></script>
 
 </body>

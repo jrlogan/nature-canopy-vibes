@@ -3,9 +3,18 @@
 // ============================================================
 
 // ----------------------------------------------------------
+// Globals — subsystems (declared here so windowResized can safely reference them
+// even if setup() hasn't run yet, avoiding a temporal-dead-zone crash)
+// ----------------------------------------------------------
+let starField = null, canopy = null, flock = null;
+let atmosphere = null, murmuration = null, gooseMigration = null;
+
+// ----------------------------------------------------------
 // Socket.io client
 // ----------------------------------------------------------
-const socket = io();
+// Use window.io (property lookup) instead of bare `io` (variable lookup) so that
+// a missing global never causes a ReferenceError — only a TypeError at worst.
+const socket = window.io();
 window._ncvSocket = socket;
 
 socket.on('connect', () => {
@@ -225,10 +234,6 @@ const EnvironmentManager = {
 const env = EnvironmentManager;
 
 
-// ----------------------------------------------------------
-// Globals — subsystems
-// ----------------------------------------------------------
-let starField, canopy, flock, atmosphere, murmuration, gooseMigration;
 let showDebug = false;
 let projectionEdgeMask = null;
 const locationTransition = {
