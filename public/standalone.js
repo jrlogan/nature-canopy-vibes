@@ -153,17 +153,25 @@
   // Optional WebRTC support using PeerJS
   let peer = null;
   let webrtcConn = null;
+  const isSupabaseRoomId = function(room) {
+    // Host-generated Supabase room IDs are currently "ncv-<token>".
+    return typeof room === 'string' && /^ncv-[a-z0-9]+$/i.test(room);
+  };
 
   // If we are NOT the server tab, connect to the host via the best available transport.
   if (!isServerTab) {
     const urlParams = new URLSearchParams(window.location.search);
     const room = urlParams.get('room');
     const _cfg = window.NCV_CONFIG || {};
+    const hasSupabaseCreds = !!(_cfg.supabaseUrl && _cfg.supabaseAnonKey);
+    const roomIsSupabase = isSupabaseRoomId(room);
+    const shouldUseSupabase = !!room && hasSupabaseCreds && roomIsSupabase;
+    const shouldUseWebRTC = !!room && typeof Peer !== 'undefined' && !roomIsSupabase;
 
     console.log('[standalone] room param:', room || '(none)', '| config url set:', !!_cfg.supabaseUrl, '| key set:', !!_cfg.supabaseAnonKey);
 
     // ── Option 1: Supabase Realtime via raw WebSocket (no SDK dependency) ──
-    if (room && _cfg.supabaseUrl && _cfg.supabaseAnonKey) {
+    if (shouldUseSupabase) {
       console.log('[standalone] Connecting via Supabase WS to room:', room);
       const socket = window.io();
 
@@ -205,17 +213,34 @@
         console.warn('[supabase] Remote init failed, falling back to BroadcastChannel:', e);
       }
 
-    // ── Option 2: WebRTC via PeerJS (fallback when Supabase is not configured) ──
-    } else if (room && typeof Peer !== 'undefined') {
+    // ── Option 2: WebRTC via PeerJS (for non-Supabase room IDs) ──
+    } else if (shouldUseWebRTC) {
       console.log('[standalone] Found room param, attempting WebRTC to:', room);
       const socket = window.io();
       peer = new Peer();
+      let webrtcOpen = false;
+      let reconnectTimer = null;
 
-      peer.on('open', (id) => {
-        console.log('[standalone] WebRTC peer open, id:', id);
-        webrtcConn = peer.connect(room);
+      const scheduleReconnect = () => {
+        if (webrtcOpen || reconnectTimer) return;
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          if (peer && !webrtcOpen) connectToHost();
+        }, 1500);
+      };
+
+      const connectToHost = () => {
+        try {
+          if (webrtcConn && webrtcConn.open) return;
+          webrtcConn = peer.connect(room);
+        } catch (err) {
+          console.warn('[standalone] WebRTC connect threw, retrying:', err);
+          scheduleReconnect();
+          return;
+        }
 
         webrtcConn.on('open', () => {
+          webrtcOpen = true;
           console.log('[standalone] WebRTC connected to host!');
           webrtcConn.send({ type: 'client_connect', socketId: socket.id });
         });
@@ -229,6 +254,25 @@
             }
           }
         });
+
+        webrtcConn.on('close', () => {
+          webrtcOpen = false;
+          scheduleReconnect();
+        });
+        webrtcConn.on('error', (err) => {
+          console.warn('[standalone] WebRTC connection error, retrying:', err);
+          webrtcOpen = false;
+          scheduleReconnect();
+        });
+      };
+
+      peer.on('open', (id) => {
+        console.log('[standalone] WebRTC peer open, id:', id);
+        connectToHost();
+      });
+      peer.on('error', (err) => {
+        console.warn('[standalone] WebRTC peer error, retrying connect:', err);
+        scheduleReconnect();
       });
 
       const origEmit = socket.emit;
@@ -239,6 +283,39 @@
           origEmit.call(socket, event, data);
         }
       };
+
+    // Legacy fallback: if room exists and we have Supabase creds but format isn't recognized,
+    // still attempt Supabase for compatibility with older custom room IDs.
+    } else if (room && hasSupabaseCreds) {
+      console.log('[standalone] Unknown room format; trying Supabase room:', room);
+      const socket = window.io();
+
+      try {
+        const sbCh = createSbChannel(_cfg.supabaseUrl, _cfg.supabaseAnonKey, room);
+
+        sbCh.on('broadcast', { event: 'env:sync' }, function({ payload }) {
+          if (clientListeners['env:sync']) {
+            clientListeners['env:sync'].forEach(function(cb) {
+              try { cb(payload); } catch(e) { console.error(e); }
+            });
+          }
+        });
+
+        sbCh.subscribe(function(status) {
+          if (status !== 'SUBSCRIBED') return;
+          if (clientListeners['connect']) {
+            clientListeners['connect'].forEach(function(cb) { try { cb(); } catch(e) {} });
+          }
+          sbCh.send({ type: 'broadcast', event: 'remote:joined', payload: {} });
+        });
+
+        socket.emit = function(event, data) {
+          sbCh.send({ type: 'broadcast', event: event, payload: data });
+          channelPost({ type: 'client_emit', event, data, socketId: socket.id });
+        };
+      } catch(e) {
+        console.warn('[supabase] Remote init failed, falling back to BroadcastChannel:', e);
+      }
 
     // ── Option 3: BroadcastChannel — same device, same browser only ──
     } else {
@@ -547,28 +624,12 @@ function refreshDerivedLiveFields() {
 async function fetchLiveWeather() {
   const lat = environmentState.liveLocationLat;
   const lon = environmentState.liveLocationLon;
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,weather_code,cloud_cover,wind_speed_10m,is_day,time&minutely_15=lightning_potential,cape&timezone=auto`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,weather_code,cloud_cover,wind_speed_10m,is_day&timezone=auto`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`live weather fetch failed: ${res.status}`);
   const data = await res.json();
   const cur = data.current || {};
-  const m15 = data.minutely_15 || {};
-
-  // Extract latest (first) 15-minute slot values
-  const lpi  = (m15.lightning_potential || [])[0] || 0;
-  const cape = (m15.cape || [])[0] || 0;
-
-  // LPI (Lightning Potential Index) is 0–100% in models like ICON/HRRR.
-  // CAPE (Convective Available Potential Energy) is 0–3000+ J/kg.
-  // We'll blend them: if LPI is high, intensity is high. If LPI is null/0, use CAPE as a proxy.
-  let intensity = 0.0;
-  if (lpi > 0) {
-    intensity = clamp01(lpi / 100);
-  } else if (cape > 0) {
-    // CAPE thresholds: 500 (weak), 1500 (moderate), 2500+ (extreme)
-    intensity = clamp01(cape / 2500);
-  }
-  environmentState.lightningIntensity = intensity;
+  environmentState.lightningIntensity = mapWeatherCode(cur.weather_code ?? 0) === 'storm' ? 0.8 : 0.0;
 
   if (typeof cur.time === 'string' && cur.time.length >= 16) {
     const hh = Number(cur.time.slice(11, 13));

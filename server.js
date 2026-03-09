@@ -169,28 +169,12 @@ function refreshDerivedLiveFields() {
 async function fetchLiveWeather() {
   const lat = environmentState.liveLocationLat;
   const lon = environmentState.liveLocationLon;
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,weather_code,cloud_cover,wind_speed_10m,is_day,time&minutely_15=lightning_potential,cape&timezone=auto`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,weather_code,cloud_cover,wind_speed_10m,is_day&timezone=auto`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`live weather fetch failed: ${res.status}`);
   const data = await res.json();
   const cur = data.current || {};
-  const m15 = data.minutely_15 || {};
-
-  // Extract latest (first) 15-minute slot values
-  const lpi  = (m15.lightning_potential || [])[0] || 0;
-  const cape = (m15.cape || [])[0] || 0;
-
-  // LPI (Lightning Potential Index) is 0–100% in models like ICON/HRRR.
-  // CAPE (Convective Available Potential Energy) is 0–3000+ J/kg.
-  // We'll blend them: if LPI is high, intensity is high. If LPI is null/0, use CAPE as a proxy.
-  let intensity = 0.0;
-  if (lpi > 0) {
-    intensity = clamp01(lpi / 100);
-  } else if (cape > 0) {
-    // CAPE thresholds: 500 (weak), 1500 (moderate), 2500+ (extreme)
-    intensity = clamp01(cape / 2500);
-  }
-  environmentState.lightningIntensity = intensity;
+  environmentState.lightningIntensity = mapWeatherCode(cur.weather_code ?? 0) === 'storm' ? 0.8 : 0.0;
 
   if (typeof cur.time === 'string' && cur.time.length >= 16) {
     const hh = Number(cur.time.slice(11, 13));

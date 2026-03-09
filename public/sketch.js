@@ -113,6 +113,8 @@ socket.on('remote:command', (payload = {}) => {
       break;
     case 'set_location':
       window._ncvBeginLocationTransition && _ncvBeginLocationTransition();
+      // Phone picked a location; dismiss QR overlay to return focus to the scene.
+      if (qrVisible) setQROverlayVisibility(false);
       break;
     default:
       return;
