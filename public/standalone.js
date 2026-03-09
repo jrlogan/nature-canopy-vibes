@@ -5,7 +5,14 @@
 
   console.log('[standalone] Socket.io not found. Initialising standalone mode.');
 
-  const channel = new BroadcastChannel('nature-canopy-vibes');
+  const hasBroadcastChannel = typeof BroadcastChannel !== 'undefined';
+  const channel = hasBroadcastChannel ? new BroadcastChannel('nature-canopy-vibes') : null;
+  if (!hasBroadcastChannel) {
+    console.warn('[standalone] BroadcastChannel unavailable; cross-tab sync disabled.');
+  }
+  const channelPost = (payload) => {
+    if (channel) channel.postMessage(payload);
+  };
   const clientListeners = {};
   let clientSocket = null;
   const isServerTab = !window.location.pathname.includes('remote');
@@ -23,7 +30,7 @@
       },
       emit: function(event, data) {
         // Send to server
-        channel.postMessage({ type: 'client_emit', event, data, socketId: clientSocket.id });
+        channelPost({ type: 'client_emit', event, data, socketId: clientSocket.id });
       }
     };
 
@@ -31,7 +38,7 @@
       if (clientListeners['connect']) {
         clientListeners['connect'].forEach(cb => cb());
       }
-      channel.postMessage({ type: 'client_connect', socketId: clientSocket.id });
+      channelPost({ type: 'client_connect', socketId: clientSocket.id });
     }, 10);
 
     return clientSocket;
@@ -48,6 +55,7 @@
 
     if (room && typeof Peer !== 'undefined') {
       console.log('[standalone] Found room param, attempting WebRTC to:', room);
+      const socket = window.io();
       peer = new Peer();
 
       peer.on('open', (id) => {
@@ -56,7 +64,7 @@
 
         webrtcConn.on('open', () => {
           console.log('[standalone] WebRTC connected to host!');
-          webrtcConn.send({ type: 'client_connect', socketId: clientSocket.id });
+          webrtcConn.send({ type: 'client_connect', socketId: socket.id });
         });
 
         webrtcConn.on('data', (msg) => {
@@ -71,27 +79,29 @@
       });
 
       // Override emit to send over WebRTC if connected
-      const origEmit = clientSocket.emit;
-      clientSocket.emit = function(event, data) {
+      const origEmit = socket.emit;
+      socket.emit = function(event, data) {
         if (webrtcConn && webrtcConn.open) {
-          webrtcConn.send({ type: 'client_emit', event, data, socketId: clientSocket.id });
+          webrtcConn.send({ type: 'client_emit', event, data, socketId: socket.id });
         } else {
-          origEmit.call(clientSocket, event, data);
+          origEmit.call(socket, event, data);
         }
       };
 
     } else {
       // Normal BroadcastChannel logic for same-device cross-tab
-      channel.onmessage = function(msg) {
-        const { type, event, data } = msg.data;
-        if (type === 'server_emit') {
-          if (clientListeners[event]) {
-            clientListeners[event].forEach(cb => {
-              try { cb(data); } catch (e) { console.error(e); }
-            });
+      if (channel) {
+        channel.onmessage = function(msg) {
+          const { type, event, data } = msg.data;
+          if (type === 'server_emit') {
+            if (clientListeners[event]) {
+              clientListeners[event].forEach(cb => {
+                try { cb(data); } catch (e) { console.error(e); }
+              });
+            }
           }
-        }
-      };
+        };
+      }
     }
     return; // Stop here for remote tab, don't run server logic
   }
@@ -108,7 +118,7 @@
         });
       }
       // Emit to remote clients
-      channel.postMessage({ type: 'server_emit', event, data });
+      channelPost({ type: 'server_emit', event, data });
     },
     on: function(event, callback) {
       if (!serverIoListeners[event]) serverIoListeners[event] = [];
@@ -133,9 +143,11 @@
     }
   };
 
-  channel.onmessage = function(msg) {
-    handleClientMessage(msg.data);
-  };
+  if (channel) {
+    channel.onmessage = function(msg) {
+      handleClientMessage(msg.data);
+    };
+  }
 
   // Host WebRTC setup
   if (typeof Peer !== 'undefined') {
@@ -193,7 +205,7 @@
              clientListeners[event].forEach(cb => cb(data));
            }
         } else {
-           channel.postMessage({ type: 'server_emit', event, data });
+           channelPost({ type: 'server_emit', event, data });
         }
       },
       _trigger: function(event, data) {
