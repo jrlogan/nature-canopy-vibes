@@ -65,9 +65,6 @@
   <!-- 1. p5.js — pinned version for Raspberry Pi stability -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
 
-  <!-- 2. Socket.io client — auto-served by the Socket.io server -->
-  <script src="/socket.io/socket.io.js"></script>
-
   <!-- PeerJS and QRCode for standalone WebRTC control -->
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
@@ -77,19 +74,26 @@
       document.write('<script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"><\\/script>');
     }
   </script>
+
+  <!-- 2. Standalone mode — must load BEFORE socket.io so window.io is always defined.
+       On a real server, socket.io loads next and overwrites window.io with the real client.
+       On GitHub Pages (static hosting), socket.io 404s and the standalone mock stays in place. -->
   <script src="standalone.js"></script>
 
-  <!-- 3. Visual subsystems (order matters: each builds on the previous) -->
+  <!-- 3. Socket.io client — auto-served by the Socket.io server (no-op 404 on static hosting) -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <!-- 4. Visual subsystems (order matters: each builds on the previous) -->
   <script src="stars.js"></script>
   <script src="murmuration.js"></script>
   <script src="canopy.js"></script>
   <script src="creatures.js"></script>
   <script src="atmosphere.js"></script>
 
-  <!-- 4. Control panel — injects its own DOM/CSS, exposes _ncv* globals -->
+  <!-- 5. Control panel — injects its own DOM/CSS, exposes _ncv* globals -->
   <script src="controls.js"></script>
 
-  <!-- 5. Main sketch — initialises everything, runs the render loop -->
+  <!-- 6. Main sketch — initialises everything, runs the render loop -->
   <script src="sketch.js"></script>
 
 </body>

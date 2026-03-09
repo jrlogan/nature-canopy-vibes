@@ -446,9 +446,9 @@ function drawSleepOverlay() {
 // ----------------------------------------------------------
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
-  starField.resize();
-  atmosphere.resize();
-  canopy.resize();
+  starField   && starField.resize();
+  atmosphere  && atmosphere.resize();
+  canopy      && canopy.resize();
   rebuildProjectionEdgeMask();
 }
 
