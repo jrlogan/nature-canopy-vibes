@@ -329,7 +329,22 @@ function draw() {
   drawLocationTransitionOverlay();
   drawSleepOverlay();
 
+  // Subtle note for opening the remote
+  drawRemoteHint();
+
   if (showDebug) drawDebugHUD();
+}
+
+function drawRemoteHint() {
+  push();
+  noStroke();
+  fill(255, 255, 255, 30);
+  textAlign(RIGHT, BOTTOM);
+  textSize(10);
+  // Ensure the hint uses a generic font and stays fully subtle
+  textFont('monospace');
+  text("Press 'L' to open location control", width - 10, height - 10);
+  pop();
 }
 
 function drawSleepOverlay() {
@@ -435,6 +450,7 @@ function keyPressed() {
   if      (key === ' ')              { env.randomise(); window._ncvSyncPanel && _ncvSyncPanel(); }
   else if (key === 'c' || key === 'C') { window._ncvTogglePanel  && _ncvTogglePanel(); }
   else if (key === 'd' || key === 'D') { window._ncvToggleDebug  && _ncvToggleDebug(); }
+  else if (key === 'l' || key === 'L') { window.open('remote.html', '_blank'); }
 }
 
 
