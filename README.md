@@ -2,6 +2,10 @@
 
 Procedural ceiling-projection scene with location-aware sky, weather, seasons, and tree ecology.
 
+🌟 **[Try the Live Web Demo here!](https://jrlogan.github.io/nature-canopy-vibes/)** 🌟
+
+*Note: The web demo runs fully in your browser! Once you open the demo, press `L` on your keyboard to open the location control remote in a new tab and control the scene.*
+
 ## Recommended Usage
 
 This project is designed as an ambient **ceiling projection** experience:
