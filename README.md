@@ -167,14 +167,23 @@ How to open:
 Advanced controls:
 
 - `Compass Overlay`: shows/hides directional compass markers on the display.
-- `Sky Offset` slider: rotates sky projection azimuth for projector calibration.
-- `Copy Cal URL`: copies a display URL that includes the current calibration offset.
-- `Lighting Flash`: triggers a manual lightning flash effect.
+- `Lightning Flash`: triggers a manual lightning flash effect.
+- `Live Location Search`: type any place and apply it directly from phone.
+- Weather quick buttons: `Clear`, `Rain`, `Storm`.
+- Environment sliders: time of day, wind speed, cloud cover, star brightness.
+- Canopy sliders: tree count, sky opening, foliage density, branch length, edge lushness, branch chaos.
+- `Season` select: auto/spring/summer/fall/winter.
+- Audio sliders: master, rain, wind, thunder, birds, crickets, night birds.
+- `Copy URL With Selected Settings`: choose exactly which settings to persist into the generated display URL.
 
 Calibration URL parameters:
 
 - `room`: fixed shared room ID for stable reconnection (`room=my-install-01`)
 - `skyAzOffset`: initial sky azimuth calibration in degrees (`skyAzOffset=15`)
+- Optional persisted display tuning params:
+  - `tod`, `wind`, `weather`, `season`, `star`, `cloud`
+  - `trees`, `skyOpen`, `foliage`, `branchLen`, `edgeLush`, `branchChaos`
+  - `sndMaster`, `sndRain`, `sndWind`, `sndThunder`, `sndBirds`, `sndCrickets`, `sndNightBirds`
 
 Example calibrated kiosk URL:
 

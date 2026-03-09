@@ -12,6 +12,7 @@ class AtmosphereSystem {
     this.pendingStrikes     = []; // [{at, type}] — queued succession strikes
     this.distantFlashAlpha  = 0;
     this.distantFlashAngle  = 0;
+    this.manualFlashUntil   = 0;
     this.nextLightningAt    = millis() + random(4000, 14000);
     this.audio = new AtmosphereAudio();
     this._cloudCoreBuf = null;
@@ -103,7 +104,10 @@ class AtmosphereSystem {
   }
 
   _updateLightning() {
-    if (env.currentWeather !== 'storm') {
+    const now = millis();
+    const manualActive = now < this.manualFlashUntil;
+
+    if (env.currentWeather !== 'storm' && !manualActive) {
       this.flashAlpha         = max(0, this.flashAlpha - 18);
       this.distantFlashAlpha  = max(0, this.distantFlashAlpha - 6);
       this.lightningBolts     = [];
@@ -111,7 +115,15 @@ class AtmosphereSystem {
       return;
     }
 
-    const now = millis();
+    if (env.currentWeather !== 'storm' && manualActive) {
+      this.flashAlpha        = max(0, this.flashAlpha - 22);
+      this.distantFlashAlpha = max(0, this.distantFlashAlpha - 5);
+      this.lightningBolts = this.lightningBolts.filter(b => {
+        b.alpha -= 30;
+        return b.alpha > 0;
+      });
+      return;
+    }
 
     // Fire any queued succession strikes.
     while (this.pendingStrikes.length > 0 && now >= this.pendingStrikes[0].at) {
@@ -246,6 +258,11 @@ class AtmosphereSystem {
 
   _triggerLocalBolt() {
     this._handleLightningEvent(0.1);
+  }
+
+  forceLightningFlash(distance = 0.1) {
+    this.manualFlashUntil = millis() + 1600;
+    this._handleLightningEvent(distance);
   }
 
   // Recursively builds a branching bolt tree.

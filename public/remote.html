@@ -158,6 +158,16 @@
       display: grid;
       gap: 8px;
     }
+    .adv-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .adv-grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
     .advanced-readout {
       color: var(--muted);
       font-size: 0.9rem;
@@ -172,9 +182,68 @@
       color: #e9fff0;
       box-shadow: 0 0 0 1px rgba(118, 226, 163, 0.4) inset;
     }
+    .weather-btn.active {
+      border-color: rgba(118, 226, 163, 0.9);
+      color: #e9fff0;
+      box-shadow: 0 0 0 1px rgba(118, 226, 163, 0.4) inset;
+    }
+    .adv-card {
+      border: 1px solid rgba(156, 203, 241, 0.2);
+      border-radius: 10px;
+      padding: 10px;
+      background: rgba(6, 13, 22, 0.52);
+    }
+    .adv-title {
+      margin: 0 0 8px;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: #9fc2dd;
+    }
+    .adv-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.86rem;
+      color: #b7cfe2;
+      margin-bottom: 3px;
+    }
+    .adv-label b {
+      color: #ecf6ff;
+    }
+    .adv-row {
+      margin-bottom: 8px;
+    }
+    .adv-input, .adv-select {
+      width: 100%;
+      min-height: 42px;
+      border-radius: 10px;
+      border: 1px solid rgba(156, 203, 241, 0.28);
+      background: rgba(18, 34, 52, 0.9);
+      color: #ecf6ff;
+      padding: 8px 10px;
+      font-size: 0.95rem;
+    }
+    .adv-check-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 10px;
+    }
+    .adv-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #c8dded;
+      font-size: 0.86rem;
+    }
 
     @media (max-width: 520px) {
       .city-grid {
+        grid-template-columns: 1fr;
+      }
+      .adv-grid-2, .adv-grid-3 {
+        grid-template-columns: 1fr;
+      }
+      .adv-check-grid {
         grid-template-columns: 1fr;
       }
     }
@@ -233,11 +302,122 @@
       <div id="advanced-row" class="row advanced-row">
         <p class="section-title">Advanced</p>
         <div class="advanced-stack">
-          <button id="btn-compass" type="button">Compass Directions: OFF</button>
-          <button id="btn-lightning" type="button">Lighting Flash</button>
-          <div class="advanced-readout">Sky Rotation Offset: <b id="compass-offset-readout">0°</b></div>
-          <input id="compass-offset" class="advanced-slider" type="range" min="-180" max="180" step="1" value="0" />
-          <button id="btn-copy-cal-url" type="button">Copy Calibration URL</button>
+          <div class="adv-grid-2">
+            <button id="btn-compass" type="button">Compass Directions: OFF</button>
+            <button id="btn-lightning" type="button">Lightning Flash</button>
+          </div>
+
+          <div class="adv-card">
+            <p class="adv-title">Location And Atmosphere</p>
+            <div class="adv-row">
+              <label class="adv-label" for="live-loc-input"><span>Live Location Search</span></label>
+              <div class="adv-grid-2">
+                <input id="live-loc-input" class="adv-input" type="text" placeholder="City or place name" />
+                <button id="btn-live-loc-set" type="button">Set Location</button>
+              </div>
+            </div>
+            <div class="adv-grid-3">
+              <button class="weather-btn" data-weather="clear" type="button">Weather: Clear</button>
+              <button class="weather-btn" data-weather="rain" type="button">Weather: Rain</button>
+              <button class="weather-btn" data-weather="storm" type="button">Weather: Storm</button>
+            </div>
+            <div class="adv-row">
+              <label class="adv-label" for="season-select"><span>Season</span></label>
+              <select id="season-select" class="adv-select">
+                <option value="auto">Auto</option>
+                <option value="spring">Spring</option>
+                <option value="summer">Summer</option>
+                <option value="fall">Fall</option>
+                <option value="winter">Winter</option>
+              </select>
+            </div>
+            <div class="adv-row">
+              <div class="adv-label"><span>Time Of Day</span><b id="time-readout">12.0h</b></div>
+              <input id="time-slider" class="advanced-slider" type="range" min="0" max="24" step="0.05" value="12" />
+            </div>
+            <div class="adv-row">
+              <div class="adv-label"><span>Wind Speed</span><b id="wind-readout">0.20</b></div>
+              <input id="wind-slider" class="advanced-slider" type="range" min="0" max="1" step="0.01" value="0.2" />
+            </div>
+            <div class="adv-row">
+              <div class="adv-label"><span>Cloud Cover</span><b id="cloud-readout">0.28</b></div>
+              <input id="cloud-slider" class="advanced-slider" type="range" min="0" max="1" step="0.01" value="0.28" />
+            </div>
+            <div class="adv-row">
+              <div class="adv-label"><span>Star Brightness</span><b id="star-readout">1.10</b></div>
+              <input id="star-slider" class="advanced-slider" type="range" min="0" max="2" step="0.05" value="1.1" />
+            </div>
+          </div>
+
+          <div class="adv-card">
+            <p class="adv-title">Canopy Calibration</p>
+            <div class="adv-row">
+              <div class="adv-label"><span>Sky Rotation Offset</span><b id="compass-offset-readout">0°</b></div>
+              <input id="compass-offset" class="advanced-slider" type="range" min="-180" max="180" step="1" value="0" />
+            </div>
+            <div class="adv-row">
+              <div class="adv-label"><span>Tree Count</span><b id="tree-count-readout">10</b></div>
+              <input id="tree-count-slider" class="advanced-slider" type="range" min="4" max="16" step="1" value="10" />
+            </div>
+            <div class="adv-row">
+              <div class="adv-label"><span>Sky Opening</span><b id="sky-open-readout">1.10</b></div>
+              <input id="sky-open-slider" class="advanced-slider" type="range" min="1" max="1.5" step="0.01" value="1.1" />
+            </div>
+            <div class="adv-row">
+              <div class="adv-label"><span>Foliage Density</span><b id="foliage-readout">0.85</b></div>
+              <input id="foliage-slider" class="advanced-slider" type="range" min="0" max="1" step="0.01" value="0.85" />
+            </div>
+            <div class="adv-row">
+              <div class="adv-label"><span>Branch Length</span><b id="branch-len-readout">0.40</b></div>
+              <input id="branch-len-slider" class="advanced-slider" type="range" min="0" max="1" step="0.01" value="0.4" />
+            </div>
+            <div class="adv-row">
+              <div class="adv-label"><span>Edge Lushness</span><b id="edge-lush-readout">1.00</b></div>
+              <input id="edge-lush-slider" class="advanced-slider" type="range" min="0" max="1.5" step="0.01" value="1" />
+            </div>
+            <div class="adv-row">
+              <div class="adv-label"><span>Branch Chaos</span><b id="branch-chaos-readout">0.62</b></div>
+              <input id="branch-chaos-slider" class="advanced-slider" type="range" min="0" max="1" step="0.01" value="0.62" />
+            </div>
+          </div>
+
+          <div class="adv-card">
+            <p class="adv-title">Audio</p>
+            <div class="adv-row"><div class="adv-label"><span>Master</span><b id="snd-master-readout">0.50</b></div><input id="snd-master-slider" class="advanced-slider" type="range" min="0" max="1" step="0.01" value="0.5" /></div>
+            <div class="adv-row"><div class="adv-label"><span>Rain</span><b id="snd-rain-readout">0.55</b></div><input id="snd-rain-slider" class="advanced-slider" type="range" min="0" max="1" step="0.01" value="0.55" /></div>
+            <div class="adv-row"><div class="adv-label"><span>Wind</span><b id="snd-wind-readout">0.45</b></div><input id="snd-wind-slider" class="advanced-slider" type="range" min="0" max="1" step="0.01" value="0.45" /></div>
+            <div class="adv-row"><div class="adv-label"><span>Thunder</span><b id="snd-thunder-readout">0.90</b></div><input id="snd-thunder-slider" class="advanced-slider" type="range" min="0" max="1" step="0.01" value="0.9" /></div>
+            <div class="adv-row"><div class="adv-label"><span>Birds</span><b id="snd-birds-readout">0.35</b></div><input id="snd-birds-slider" class="advanced-slider" type="range" min="0" max="1" step="0.01" value="0.35" /></div>
+            <div class="adv-row"><div class="adv-label"><span>Crickets</span><b id="snd-crickets-readout">0.35</b></div><input id="snd-crickets-slider" class="advanced-slider" type="range" min="0" max="1" step="0.01" value="0.35" /></div>
+            <div class="adv-row"><div class="adv-label"><span>Night Birds</span><b id="snd-nightbirds-readout">0.25</b></div><input id="snd-nightbirds-slider" class="advanced-slider" type="range" min="0" max="1" step="0.01" value="0.25" /></div>
+          </div>
+
+          <div class="adv-card">
+            <p class="adv-title">Copy Persistent URL</p>
+            <div class="adv-row">
+              <label class="adv-label" for="copy-room-input"><span>Room ID</span></label>
+              <input id="copy-room-input" class="adv-input" type="text" placeholder="my-install-01" />
+            </div>
+            <div class="adv-check-grid">
+              <label class="adv-check"><input type="checkbox" id="inc-qr" checked /> Show QR On Boot</label>
+              <label class="adv-check"><input type="checkbox" id="inc-room" checked /> Room</label>
+              <label class="adv-check"><input type="checkbox" id="inc-compass-offset" checked /> Compass Offset</label>
+              <label class="adv-check"><input type="checkbox" id="inc-time" /> Time</label>
+              <label class="adv-check"><input type="checkbox" id="inc-wind" /> Wind</label>
+              <label class="adv-check"><input type="checkbox" id="inc-weather" /> Weather</label>
+              <label class="adv-check"><input type="checkbox" id="inc-season" /> Season</label>
+              <label class="adv-check"><input type="checkbox" id="inc-star" /> Star Brightness</label>
+              <label class="adv-check"><input type="checkbox" id="inc-cloud" /> Cloud Cover</label>
+              <label class="adv-check"><input type="checkbox" id="inc-tree-count" checked /> Tree Count</label>
+              <label class="adv-check"><input type="checkbox" id="inc-sky-open" checked /> Sky Opening</label>
+              <label class="adv-check"><input type="checkbox" id="inc-foliage" checked /> Foliage Density</label>
+              <label class="adv-check"><input type="checkbox" id="inc-branch-len" checked /> Branch Length</label>
+              <label class="adv-check"><input type="checkbox" id="inc-edge-lush" checked /> Edge Lushness</label>
+              <label class="adv-check"><input type="checkbox" id="inc-branch-chaos" checked /> Branch Chaos</label>
+              <label class="adv-check"><input type="checkbox" id="inc-audio" /> Audio Mix</label>
+            </div>
+            <button id="btn-copy-cal-url" type="button">Copy URL With Selected Settings</button>
+          </div>
         </div>
       </div>
 

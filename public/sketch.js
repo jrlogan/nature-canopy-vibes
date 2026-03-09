@@ -20,6 +20,72 @@ function parseStartupCompassOffsetDeg() {
   return ((n + 180) % 360 + 360) % 360 - 180;
 }
 
+function parseStartupEnvOverrides() {
+  const readNum = (key, min, max, round = false) => {
+    const raw = startupUrlParams.get(key);
+    if (raw === null || raw === '') return undefined;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return undefined;
+    const clamped = Math.max(min, Math.min(max, n));
+    return round ? Math.round(clamped) : clamped;
+  };
+  const out = {};
+
+  const tod = readNum('tod', 0, 24);
+  const wind = readNum('wind', 0, 1);
+  const cloud = readNum('cloud', 0, 1);
+  const star = readNum('star', 0, 2);
+  const trees = readNum('trees', 4, 16, true);
+  const skyOpen = readNum('skyOpen', 1, 1.5);
+  const foliage = readNum('foliage', 0, 1);
+  const branchLen = readNum('branchLen', 0, 1);
+  const edgeLush = readNum('edgeLush', 0, 1.5);
+  const branchChaos = readNum('branchChaos', 0, 1);
+  const sndMaster = readNum('sndMaster', 0, 1);
+  const sndRain = readNum('sndRain', 0, 1);
+  const sndWind = readNum('sndWind', 0, 1);
+  const sndThunder = readNum('sndThunder', 0, 1);
+  const sndBirds = readNum('sndBirds', 0, 1);
+  const sndCrickets = readNum('sndCrickets', 0, 1);
+  const sndNightBirds = readNum('sndNightBirds', 0, 1);
+
+  if (tod !== undefined) out.timeOfDay = tod;
+  if (wind !== undefined) out.windSpeed = wind;
+  if (cloud !== undefined) out.cloudCover = cloud;
+  if (star !== undefined) out.starBrightness = star;
+  if (trees !== undefined) out.treeFrameDensity = trees;
+  if (skyOpen !== undefined) out.treeSkyOpen = skyOpen;
+  if (foliage !== undefined) out.treeFoliageMass = foliage;
+  if (branchLen !== undefined) out.treeBranchReach = branchLen;
+  if (edgeLush !== undefined) out.canopyEdgeLushness = edgeLush;
+  if (branchChaos !== undefined) out.treeBranchChaos = branchChaos;
+  if (sndMaster !== undefined) out.soundMaster = sndMaster;
+  if (sndRain !== undefined) out.soundRain = sndRain;
+  if (sndWind !== undefined) out.soundWind = sndWind;
+  if (sndThunder !== undefined) out.soundThunder = sndThunder;
+  if (sndBirds !== undefined) out.soundBirds = sndBirds;
+  if (sndCrickets !== undefined) out.soundCrickets = sndCrickets;
+  if (sndNightBirds !== undefined) out.soundNightBirds = sndNightBirds;
+
+  const weather = String(startupUrlParams.get('weather') || '').toLowerCase();
+  if (['clear', 'rain', 'storm'].includes(weather)) out.currentWeather = weather;
+
+  const season = String(startupUrlParams.get('season') || '').toLowerCase();
+  if (['auto', 'spring', 'summer', 'fall', 'winter'].includes(season)) out.season = season;
+
+  if (
+    out.timeOfDay !== undefined ||
+    out.windSpeed !== undefined ||
+    out.cloudCover !== undefined ||
+    out.currentWeather !== undefined
+  ) {
+    out.simulationMode = 'manual';
+  }
+  return out;
+}
+const startupEnvOverrides = parseStartupEnvOverrides();
+let startupOverridesSent = false;
+
 // ----------------------------------------------------------
 // Socket.io client
 // ----------------------------------------------------------
@@ -31,6 +97,10 @@ window._ncvSocket = socket;
 socket.on('connect', () => {
   console.log('[socket] Connected →', socket.id);
   window._ncvSetSocketStatus && _ncvSetSocketStatus(true);
+  if (!startupOverridesSent && Object.keys(startupEnvOverrides).length > 0) {
+    socket.emit('remote:command', { command: 'set_env_values', data: startupEnvOverrides });
+    startupOverridesSent = true;
+  }
 });
 socket.on('disconnect', () => {
   console.log('[socket] Disconnected');
@@ -135,6 +205,30 @@ socket.on('remote:command', (payload = {}) => {
       }
       break;
     }
+    case 'set_env_values': {
+      const data = payload && payload.data && typeof payload.data === 'object' ? payload.data : {};
+      const prevTreeCount = env.treeFrameDensity;
+      const prevDepth = env.branchDepth;
+      const prevLoc = `${env.liveLocationLat ?? ''},${env.liveLocationLon ?? ''},${env.liveDateISO ?? ''}`;
+      env.apply(data);
+      if (prevTreeCount !== env.treeFrameDensity) {
+        window._ncvUpdateTreeCount && _ncvUpdateTreeCount();
+      }
+      if (prevDepth !== env.branchDepth) {
+        window._ncvRebuildCanopy && _ncvRebuildCanopy();
+      }
+      const nextLoc = `${env.liveLocationLat ?? ''},${env.liveLocationLon ?? ''},${env.liveDateISO ?? ''}`;
+      if (prevLoc !== nextLoc) {
+        window._ncvBeginLocationTransition && _ncvBeginLocationTransition();
+      }
+      window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
+      break;
+    }
+    case 'lightning_flash':
+      if (atmosphere && typeof atmosphere.forceLightningFlash === 'function') {
+        atmosphere.forceLightningFlash();
+      }
+      break;
     case 'set_location':
       window._ncvBeginLocationTransition && _ncvBeginLocationTransition();
       // Phone picked a location; dismiss QR overlay to return focus to the scene.
@@ -262,6 +356,9 @@ const EnvironmentManager = {
 };
 
 const env = EnvironmentManager;
+if (Object.keys(startupEnvOverrides).length > 0) {
+  env.apply(startupEnvOverrides);
+}
 
 
 let showDebug = false;

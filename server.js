@@ -87,10 +87,79 @@ function clamp01(n) {
   return Math.max(0, Math.min(1, n));
 }
 
+function clampRange(v, min, max, fallback = min) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
 function normalizeAzimuthOffsetDeg(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
   return ((n + 180) % 360 + 360) % 360 - 180;
+}
+
+function normalizeSeason(v) {
+  const s = String(v || '').toLowerCase();
+  return ['auto', 'spring', 'summer', 'fall', 'winter'].includes(s) ? s : null;
+}
+
+function applyRemoteEnvPatch(data = {}) {
+  const weather = String(data.currentWeather || '').toLowerCase();
+  const season = normalizeSeason(data.season);
+  let changed = false;
+  let forceManual = false;
+
+  const setNumeric = (key, min, max, opts = {}) => {
+    if (data[key] === undefined) return;
+    const fallback = Number.isFinite(environmentState[key]) ? environmentState[key] : min;
+    const next = clampRange(data[key], min, max, fallback);
+    if (opts.round) {
+      const rounded = Math.round(next);
+      if (environmentState[key] !== rounded) {
+        environmentState[key] = rounded;
+        changed = true;
+      }
+    } else if (environmentState[key] !== next) {
+      environmentState[key] = next;
+      changed = true;
+    }
+    if (opts.manual) forceManual = true;
+  };
+
+  setNumeric('timeOfDay', 0, 24, { manual: true });
+  setNumeric('windSpeed', 0, 1, { manual: true });
+  setNumeric('cloudCover', 0, 1, { manual: true });
+  setNumeric('starBrightness', 0, 2);
+  setNumeric('treeFrameDensity', 4, 16, { round: true });
+  setNumeric('treeSkyOpen', 1, 1.5);
+  setNumeric('treeFoliageMass', 0, 1);
+  setNumeric('treeBranchReach', 0, 1);
+  setNumeric('canopyEdgeLushness', 0, 1.5);
+  setNumeric('treeBranchChaos', 0, 1);
+  setNumeric('soundMaster', 0, 1);
+  setNumeric('soundRain', 0, 1);
+  setNumeric('soundWind', 0, 1);
+  setNumeric('soundThunder', 0, 1);
+  setNumeric('soundBirds', 0, 1);
+  setNumeric('soundCrickets', 0, 1);
+  setNumeric('soundNightBirds', 0, 1);
+
+  if (weather && ['clear', 'rain', 'storm'].includes(weather) && environmentState.currentWeather !== weather) {
+    environmentState.currentWeather = weather;
+    changed = true;
+    forceManual = true;
+  }
+  if (season && environmentState.season !== season) {
+    environmentState.season = season;
+    changed = true;
+  }
+  if (forceManual && environmentState.simulationMode !== 'manual') {
+    environmentState.simulationMode = 'manual';
+    changed = true;
+  }
+  if (changed) refreshDerivedLiveFields();
+  return changed;
 }
 
 function setApproxLocalTimeFromLon(lon) {
@@ -563,6 +632,11 @@ io.on('connection', (socket) => {
         break;
       case 'set_compass_offset':
         environmentState.skyAzimuthOffsetDeg = normalizeAzimuthOffsetDeg(data.value);
+        break;
+      case 'set_env_values':
+        if (!applyRemoteEnvPatch(data)) return;
+        break;
+      case 'lightning_flash':
         break;
       default:
         console.log(`[socket] Unknown remote command: ${command}`);
