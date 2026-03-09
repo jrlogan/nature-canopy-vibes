@@ -75,7 +75,12 @@
     }
   </script>
 
-  <!-- 2. Standalone mode — must load BEFORE socket.io so window.io is always defined.
+  <!-- 2. Supabase SDK + project config — for cross-device remote control.
+       The anon key is safe to expose; Supabase Realtime Broadcast needs no DB access. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
+
+  <!-- 3. Standalone mode — must load BEFORE socket.io so window.io is always defined.
        On a real server, socket.io loads next and overwrites window.io with the real client.
        On GitHub Pages (static hosting), socket.io 404s and the standalone mock stays in place. -->
   <script src="standalone.js"></script>

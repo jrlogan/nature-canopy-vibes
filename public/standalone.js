@@ -55,12 +55,54 @@
   let peer = null;
   let webrtcConn = null;
 
-  // If we are NOT the server tab, we check if we need to connect via WebRTC
+  // If we are NOT the server tab, connect to the host via the best available transport.
   if (!isServerTab) {
     const urlParams = new URLSearchParams(window.location.search);
     const room = urlParams.get('room');
+    const _cfg = window.NCV_CONFIG || {};
 
-    if (room && typeof Peer !== 'undefined') {
+    // ── Option 1: Supabase Realtime Broadcast (preferred — no eval, no CSP issues) ──
+    if (room && _cfg.supabaseUrl && _cfg.supabaseAnonKey && typeof supabase !== 'undefined') {
+      console.log('[standalone] Connecting via Supabase to room:', room);
+      const socket = window.io();
+
+      try {
+        const sb = supabase.createClient(_cfg.supabaseUrl, _cfg.supabaseAnonKey);
+        const sbCh = sb.channel(room, { config: { broadcast: { self: false } } });
+
+        // Receive env:sync from host and dispatch to registered listeners (e.g. remote.js)
+        sbCh.on('broadcast', { event: 'env:sync' }, function({ payload }) {
+          if (clientListeners['env:sync']) {
+            clientListeners['env:sync'].forEach(function(cb) {
+              try { cb(payload); } catch(e) { console.error(e); }
+            });
+          }
+        });
+
+        sbCh.subscribe(function(status) {
+          if (status !== 'SUBSCRIBED') return;
+          console.log('[supabase] Remote connected to room:', room);
+          // Fire connect callbacks so remote.js shows "Connected" status
+          if (clientListeners['connect']) {
+            clientListeners['connect'].forEach(function(cb) { try { cb(); } catch(e) {} });
+          }
+          // Ask host for an immediate state snapshot
+          sbCh.send({ type: 'broadcast', event: 'remote:joined', payload: {} });
+        });
+
+        // Route all socket.emit calls to the Supabase channel
+        socket.emit = function(event, data) {
+          sbCh.send({ type: 'broadcast', event: event, payload: data });
+          // Also try BroadcastChannel so same-device tabs still work
+          channelPost({ type: 'client_emit', event, data, socketId: socket.id });
+        };
+
+      } catch(e) {
+        console.warn('[supabase] Remote init failed, falling back to BroadcastChannel:', e);
+      }
+
+    // ── Option 2: WebRTC via PeerJS (fallback when Supabase is not configured) ──
+    } else if (room && typeof Peer !== 'undefined') {
       console.log('[standalone] Found room param, attempting WebRTC to:', room);
       const socket = window.io();
       peer = new Peer();
@@ -85,7 +127,6 @@
         });
       });
 
-      // Override emit to send over WebRTC if connected
       const origEmit = socket.emit;
       socket.emit = function(event, data) {
         if (webrtcConn && webrtcConn.open) {
@@ -95,8 +136,8 @@
         }
       };
 
+    // ── Option 3: BroadcastChannel — same device, same browser only ──
     } else {
-      // Normal BroadcastChannel logic for same-device cross-tab
       if (channel) {
         channel.onmessage = function(msg) {
           const { type, event, data } = msg.data;
@@ -776,6 +817,58 @@ io.on('connection', (socket) => {
   });
 });
 
+
+// ── Supabase Realtime Broadcast — host side ──────────────────────────────────
+// Generates a room ID, publishes env:sync to it, and receives remote commands.
+// Only activates when config.js has valid Supabase credentials.
+(function initSupabaseHost() {
+  const _cfg = window.NCV_CONFIG || {};
+  if (!_cfg.supabaseUrl || !_cfg.supabaseAnonKey) return;
+  if (typeof supabase === 'undefined') {
+    console.warn('[supabase] SDK not loaded — cross-device remote disabled');
+    return;
+  }
+
+  const roomId = 'ncv-' + Math.random().toString(36).substr(2, 12);
+  window.__supabaseRoomId = roomId;
+
+  try {
+    const sb = supabase.createClient(_cfg.supabaseUrl, _cfg.supabaseAnonKey);
+    const sbCh = sb.channel(roomId, { config: { broadcast: { self: false } } });
+
+    // Receive commands from remote phone
+    sbCh.on('broadcast', { event: 'remote:command' }, function({ payload }) {
+      handleClientMessage({
+        type: 'client_emit', event: 'remote:command',
+        data: payload, socketId: 'supabase-remote'
+      });
+    });
+
+    // When a new remote client joins, immediately send current state
+    sbCh.on('broadcast', { event: 'remote:joined' }, function() {
+      sbCh.send({ type: 'broadcast', event: 'env:sync', payload: environmentState });
+    });
+
+    sbCh.subscribe(function(status) {
+      if (status !== 'SUBSCRIBED') return;
+      console.log('[supabase] Host room ready — share this room ID:', roomId);
+      // Send initial state in case a remote is already waiting
+      sbCh.send({ type: 'broadcast', event: 'env:sync', payload: environmentState });
+    });
+
+    // Patch serverIo.emit so every env:sync is also broadcast to remote phones
+    const _origEmit = serverIo.emit.bind(serverIo);
+    serverIo.emit = function(event, data) {
+      _origEmit(event, data);
+      if (event === 'env:sync') {
+        sbCh.send({ type: 'broadcast', event: 'env:sync', payload: data });
+      }
+    };
+
+  } catch(e) {
+    console.warn('[supabase] Host init failed:', e);
+  }
+}());
 
 setInterval(simulationTick, TICK_MS);
 simulationTick();

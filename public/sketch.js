@@ -382,7 +382,8 @@ function showQRFallbackOverlay() {
   qrGenerated = true; // allow 'q' key to toggle the overlay
 
   const remoteUrl = new URL('remote.html', window.location.href);
-  if (window.__webrtcHostId) remoteUrl.searchParams.set('room', window.__webrtcHostId);
+  const _roomId = window.__supabaseRoomId || window.__webrtcHostId;
+  if (_roomId) remoteUrl.searchParams.set('room', _roomId);
   const urlStr = remoteUrl.toString();
 
   const qrContainer = document.getElementById('qr-container');
@@ -422,9 +423,8 @@ function handleQROverlay() {
   qrGenerated = true;
 
   const remoteUrl = new URL('remote.html', window.location.href);
-  if (window.__webrtcHostId) {
-    remoteUrl.searchParams.set('room', window.__webrtcHostId);
-  }
+  const _qrRoomId = window.__supabaseRoomId || window.__webrtcHostId;
+  if (_qrRoomId) remoteUrl.searchParams.set('room', _qrRoomId);
 
   const canvasElement = document.getElementById('qr-canvas');
 

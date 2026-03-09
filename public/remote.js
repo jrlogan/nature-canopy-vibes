@@ -1,4 +1,4 @@
-const socket = io();
+const socket = window.io();
 
 const statusEl = document.getElementById('status');
 const logEl = document.getElementById('log');
