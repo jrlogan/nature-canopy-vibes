@@ -16,6 +16,6 @@
 // ============================================================
 
 window.NCV_CONFIG = {
-  supabaseUrl:     '',   // e.g. 'https://abcxyz.supabase.co'
-  supabaseAnonKey: '',   // the 'anon public' key (safe to commit — read-only by design)
+  supabaseUrl:     'https://vmecmvhyibysbxeudinc.supabase.co',
+  supabaseAnonKey: 'sb_publishable_nHq2Wce2O6LI3XIXr-c7Lg_wvagbEio',
 };
