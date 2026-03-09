@@ -32,6 +32,7 @@ let activeLocationName = '';
 let advancedTapCount = 0;
 let advancedTapResetTimer = null;
 let advancedUnlocked = false;
+let advancedHoldTimer = null;
 
 function normalizeOffsetDeg(v) {
   const n = Number(v);
@@ -58,7 +59,8 @@ function initAdvancedUnlock() {
     if (localStorage.getItem('ncv-remote-advanced') === '1') setAdvancedUnlocked(true);
   } catch (e) {}
   if (!remoteTitleEl) return;
-  remoteTitleEl.addEventListener('click', () => {
+  remoteTitleEl.addEventListener('click', (e) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
     advancedTapCount += 1;
     if (advancedTapResetTimer) clearTimeout(advancedTapResetTimer);
     advancedTapResetTimer = setTimeout(() => { advancedTapCount = 0; }, 4000);
@@ -68,6 +70,34 @@ function initAdvancedUnlock() {
       setLog(advancedUnlocked ? 'Advanced unlocked' : 'Advanced hidden');
     }
   });
+
+  // Mobile-safe fallback: press and hold connection status for 1.2s.
+  if (statusEl) {
+    const startHold = (e) => {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      if (advancedHoldTimer) clearTimeout(advancedHoldTimer);
+      advancedHoldTimer = setTimeout(() => {
+        advancedHoldTimer = null;
+        setAdvancedUnlocked(!advancedUnlocked);
+        setLog(advancedUnlocked ? 'Advanced unlocked' : 'Advanced hidden');
+      }, 1200);
+    };
+    const cancelHold = (e) => {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      if (!advancedHoldTimer) return;
+      clearTimeout(advancedHoldTimer);
+      advancedHoldTimer = null;
+    };
+    statusEl.addEventListener('pointerdown', startHold);
+    statusEl.addEventListener('pointerup', cancelHold);
+    statusEl.addEventListener('pointerleave', cancelHold);
+    statusEl.addEventListener('pointercancel', cancelHold);
+    statusEl.addEventListener('touchstart', startHold, { passive: true });
+    statusEl.addEventListener('touchend', cancelHold, { passive: true });
+    statusEl.addEventListener('touchcancel', cancelHold, { passive: true });
+    statusEl.addEventListener('mousedown', startHold);
+    statusEl.addEventListener('mouseup', cancelHold);
+  }
 }
 
 function setStatus(msg) {
