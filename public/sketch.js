@@ -377,7 +377,17 @@ function setQROverlayVisibility(visible) {
 }
 
 function showQRFallbackOverlay() {
-  if (qrFallbackShown) return;
+  // Allow regeneration if a room ID is now available but wasn't when first shown.
+  const _newRoomId = window.__supabaseRoomId || window.__webrtcHostId;
+  if (qrFallbackShown && !_newRoomId) return;
+  if (qrFallbackShown) {
+    // Check if the current QR already has a room param; if so, nothing to do.
+    const _existing = document.querySelector('#qr-overlay a, #qr-overlay img');
+    if (_existing) {
+      const _src = (_existing.href || _existing.src || '');
+      if (_src.includes('room=')) { setQROverlayVisibility(true); return; }
+    }
+  }
   qrFallbackShown = true;
   qrGenerated = true; // allow 'q' key to toggle the overlay
 
@@ -563,10 +573,13 @@ function keyPressed() {
   else if (key === 'd' || key === 'D') { window._ncvToggleDebug  && _ncvToggleDebug(); }
   else if (key === 'l' || key === 'L') { window.open('remote.html', '_blank'); }
   else if (key === 'q' || key === 'Q') {
-    if (qrGenerated) {
-      setQROverlayVisibility(!qrVisible);
+    if (qrGenerated && qrVisible) {
+      setQROverlayVisibility(false);
     } else {
-      showQRFallbackOverlay(); // generate on first 'q' press even without the JS lib
+      // Always regenerate/show — picks up room ID if it arrived after first render
+      qrFallbackShown = false;
+      qrGenerated = false;
+      showQRFallbackOverlay();
     }
   }
 }

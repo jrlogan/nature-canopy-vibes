@@ -164,6 +164,9 @@
   }
 
   // ==== SERVER LOGIC BEGINS ====
+  // Generate the Supabase room ID immediately (synchronously) so the QR code
+  // always has a room param regardless of whether the SDK has loaded yet.
+  window.__supabaseRoomId = 'ncv-' + Math.random().toString(36).substr(2, 12);
 
   const serverIoListeners = {};
   const serverIo = {
@@ -842,8 +845,7 @@ io.on('connection', (socket) => {
     return;
   }
 
-  const roomId = 'ncv-' + Math.random().toString(36).substr(2, 12);
-  window.__supabaseRoomId = roomId;
+  const roomId = window.__supabaseRoomId; // already generated synchronously above
 
   try {
     const sb = supabase.createClient(_cfg.supabaseUrl, _cfg.supabaseAnonKey);
