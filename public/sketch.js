@@ -379,21 +379,32 @@ function setQROverlayVisibility(visible) {
 function showQRFallbackOverlay() {
   if (qrFallbackShown) return;
   qrFallbackShown = true;
-  setQROverlayVisibility(true);
+  qrGenerated = true; // allow 'q' key to toggle the overlay
 
   const remoteUrl = new URL('remote.html', window.location.href);
+  if (window.__webrtcHostId) remoteUrl.searchParams.set('room', window.__webrtcHostId);
+  const urlStr = remoteUrl.toString();
+
   const qrContainer = document.getElementById('qr-container');
   if (qrContainer) {
-    qrContainer.innerHTML = '<div style="max-width: 520px; color: #111; text-align: center; font: 600 18px/1.4 monospace;">QR script failed to load.<br>Open this URL on your phone:<br><br><a href="' +
-      remoteUrl.toString() +
-      '" target="_blank" rel="noopener noreferrer" style="color:#0b57d0; word-break: break-all;">' +
-      remoteUrl.toString() +
-      '</a></div>';
+    // Use an image-based QR API — not a script, so unaffected by script-src CSP.
+    const apiUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=256x256&ecc=M&data='
+      + encodeURIComponent(urlStr);
+    qrContainer.innerHTML =
+      '<img src="' + apiUrl + '" width="256" height="256" alt="QR Code"'
+      + ' onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'block\'"'
+      + ' style="display:block;border-radius:4px" />'
+      + '<div style="display:none;max-width:480px;color:#111;text-align:center;'
+      + 'font:600 14px/1.5 monospace;word-break:break-all"><a href="' + urlStr
+      + '" target="_blank" rel="noopener noreferrer" style="color:#0b57d0">'
+      + urlStr + '</a></div>';
   }
+
+  setQROverlayVisibility(true);
 
   const sub = document.querySelector('.qr-subtext');
   if (sub) {
-    sub.textContent = "Press 'L' to open local remote, or click anywhere to dismiss.";
+    sub.textContent = "Press 'L' to open remote on this device, or click anywhere to dismiss.";
   }
 }
 
@@ -401,6 +412,8 @@ function handleQROverlay() {
   // Setup once when QRCode is available.
   // In server mode we use /remote.html; in standalone we append ?room=<peer-id>.
   if (qrGenerated) return;
+
+  // Fall back to image-based QR if the JS library didn't load (e.g. CDN / CSP blocked).
   if (typeof QRCode === 'undefined') {
     if (qrShowOnStart) showQRFallbackOverlay();
     return;
@@ -415,15 +428,24 @@ function handleQROverlay() {
 
   const canvasElement = document.getElementById('qr-canvas');
 
-  QRCode.toCanvas(canvasElement, remoteUrl.toString(), {
-    width: 256,
-    color: {
-      dark: '#000000',
-      light: '#ffffff'
-    }
-  }, function (error) {
-    if (error) console.error("QR Code Error:", error);
-  });
+  try {
+    QRCode.toCanvas(canvasElement, remoteUrl.toString(), {
+      width: 256,
+      color: { dark: '#000000', light: '#ffffff' }
+    }, function (error) {
+      if (error) {
+        console.warn('[qr] toCanvas failed, using image fallback:', error);
+        qrGenerated = false;
+        qrFallbackShown = false;
+        showQRFallbackOverlay();
+      }
+    });
+  } catch (e) {
+    console.warn('[qr] QRCode threw, using image fallback:', e);
+    qrGenerated = false;
+    qrFallbackShown = false;
+    showQRFallbackOverlay();
+  }
 
   // Optional startup QR mode for keyboard-less kiosks, e.g. ?qr=1
   if (qrShowOnStart) setQROverlayVisibility(true);
@@ -541,7 +563,11 @@ function keyPressed() {
   else if (key === 'd' || key === 'D') { window._ncvToggleDebug  && _ncvToggleDebug(); }
   else if (key === 'l' || key === 'L') { window.open('remote.html', '_blank'); }
   else if (key === 'q' || key === 'Q') {
-    if (qrGenerated) setQROverlayVisibility(!qrVisible);
+    if (qrGenerated) {
+      setQROverlayVisibility(!qrVisible);
+    } else {
+      showQRFallbackOverlay(); // generate on first 'q' press even without the JS lib
+    }
   }
 }
 

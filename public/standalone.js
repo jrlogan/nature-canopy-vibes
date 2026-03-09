@@ -29,15 +29,22 @@
         clientListeners[event].push(callback);
       },
       emit: function(event, data) {
-        // Send to server
+        // Route directly to the in-page server (handleClientMessage is defined below
+        // in the same IIFE and is fully initialised by the time this is ever called).
+        // This avoids BroadcastChannel, which cannot deliver messages to the same tab.
+        handleClientMessage({ type: 'client_emit', event, data, socketId: clientSocket.id });
+        // Also broadcast so any other open tabs (remote.html) receive it.
         channelPost({ type: 'client_emit', event, data, socketId: clientSocket.id });
       }
     };
 
-    setTimeout(() => {
+    // Trigger 'connect' callback asynchronously (mimics real socket.io behaviour).
+    setTimeout(function() {
       if (clientListeners['connect']) {
-        clientListeners['connect'].forEach(cb => cb());
+        clientListeners['connect'].forEach(function(cb) { cb(); });
       }
+      // Announce to the in-page server that this client has connected.
+      handleClientMessage({ type: 'client_connect', socketId: clientSocket.id });
       channelPost({ type: 'client_connect', socketId: clientSocket.id });
     }, 10);
 
@@ -221,21 +228,6 @@
   }
 
   const io = serverIo;
-
-  setTimeout(() => {
-    const localSocket = getOrCreateFakeSocket(clientSocket ? clientSocket.id : 'local');
-    if (clientSocket) {
-      const origEmit = clientSocket.emit;
-      clientSocket.emit = function(event, data) {
-        localSocket._trigger(event, data);
-        origEmit.call(clientSocket, event, data);
-      };
-    }
-
-    if (serverIoListeners['connection']) {
-      serverIoListeners['connection'].forEach(cb => cb(localSocket));
-    }
-  }, 20);
 
   // Mocks for server dependencies
   const process = { env: {} };
