@@ -61,6 +61,11 @@
     const room = urlParams.get('room');
     const _cfg = window.NCV_CONFIG || {};
 
+    // Diagnostics so the console shows exactly why a transport was or wasn't chosen.
+    console.log('[standalone] room param:', room || '(none)');
+    console.log('[standalone] supabase SDK:', typeof supabase !== 'undefined' ? 'loaded' : 'MISSING');
+    console.log('[standalone] config url set:', !!_cfg.supabaseUrl, '| key set:', !!_cfg.supabaseAnonKey);
+
     // ── Option 1: Supabase Realtime Broadcast (preferred — no eval, no CSP issues) ──
     if (room && _cfg.supabaseUrl && _cfg.supabaseAnonKey && typeof supabase !== 'undefined') {
       console.log('[standalone] Connecting via Supabase to room:', room);
@@ -827,7 +832,11 @@ io.on('connection', (socket) => {
 // Only activates when config.js has valid Supabase credentials.
 (function initSupabaseHost() {
   const _cfg = window.NCV_CONFIG || {};
-  if (!_cfg.supabaseUrl || !_cfg.supabaseAnonKey) return;
+  console.log('[supabase:host] config url set:', !!_cfg.supabaseUrl, '| key set:', !!_cfg.supabaseAnonKey, '| SDK:', typeof supabase !== 'undefined' ? 'loaded' : 'MISSING');
+  if (!_cfg.supabaseUrl || !_cfg.supabaseAnonKey) {
+    console.warn('[supabase:host] Credentials missing — cross-device remote disabled. Check config.js.');
+    return;
+  }
   if (typeof supabase === 'undefined') {
     console.warn('[supabase] SDK not loaded — cross-device remote disabled');
     return;
