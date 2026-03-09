@@ -150,6 +150,7 @@ class AtmosphereSystem {
         this.pendingStrikes.push({ at: t1 + random(140, 380), type: Math.random() < 0.5 ? 'local' : 'distant' });
       }
     }
+  }
 
   _scheduleStrikeGroup() {
     const now = millis();
