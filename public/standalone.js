@@ -171,19 +171,24 @@
   };
 
   const fakeSockets = {};
-  function getOrCreateFakeSocket(id) {
-    if (fakeSockets[id]) return fakeSockets[id];
+  function getOrCreateFakeSocket(id, originConn = null) {
+    if (fakeSockets[id]) {
+      if (originConn) fakeSockets[id]._webrtcConn = originConn;
+      return fakeSockets[id];
+    }
 
     const socketListeners = {};
     const socket = {
       id: id,
+      _webrtcConn: originConn,
       on: function(event, callback) {
         if (!socketListeners[event]) socketListeners[event] = [];
         socketListeners[event].push(callback);
       },
       emit: function(event, data) {
-        // Broadcast works for our standalone purposes
-        if (clientSocket && clientSocket.id === id) {
+        if (this._webrtcConn) {
+           this._webrtcConn.send({ type: 'server_emit', event, data });
+        } else if (clientSocket && clientSocket.id === id) {
            if (clientListeners[event]) {
              clientListeners[event].forEach(cb => cb(data));
            }
