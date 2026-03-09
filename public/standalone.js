@@ -157,16 +157,27 @@
     // Host-generated Supabase room IDs are currently "ncv-<token>".
     return typeof room === 'string' && /^ncv-[a-z0-9]+$/i.test(room);
   };
+  const normalizeRoomId = function(raw) {
+    const room = String(raw || '').trim();
+    // Keep IDs URL/Peer-safe and easy to print/share.
+    if (!/^[A-Za-z0-9_-]{3,64}$/.test(room)) return '';
+    return room;
+  };
+  const startupParams = new URLSearchParams(window.location.search);
+  const fixedRoomId = normalizeRoomId(
+    startupParams.get('room') || startupParams.get('qrRoom') || startupParams.get('roomId')
+  );
+  window.__ncvFixedRoomId = fixedRoomId || null;
 
   // If we are NOT the server tab, connect to the host via the best available transport.
   if (!isServerTab) {
     const urlParams = new URLSearchParams(window.location.search);
-    const room = urlParams.get('room');
+    const room = normalizeRoomId(urlParams.get('room'));
     const _cfg = window.NCV_CONFIG || {};
     const hasSupabaseCreds = !!(_cfg.supabaseUrl && _cfg.supabaseAnonKey);
     const roomIsSupabase = isSupabaseRoomId(room);
     const shouldUseSupabase = !!room && hasSupabaseCreds && roomIsSupabase;
-    const shouldUseWebRTC = !!room && typeof Peer !== 'undefined' && !roomIsSupabase;
+    const shouldUseWebRTC = !!room && typeof Peer !== 'undefined' && (!roomIsSupabase || !hasSupabaseCreds);
 
     console.log('[standalone] room param:', room || '(none)', '| config url set:', !!_cfg.supabaseUrl, '| key set:', !!_cfg.supabaseAnonKey);
 
@@ -339,7 +350,12 @@
   // Persist the room ID in localStorage so the phone URL stays valid across
   // canvas refreshes — no need to re-scan the QR every time.
   var _storedRoom = null;
-  try { _storedRoom = localStorage.getItem('ncv-room-id'); } catch(e) {}
+  if (fixedRoomId) {
+    _storedRoom = fixedRoomId;
+    try { localStorage.setItem('ncv-room-id', _storedRoom); } catch(e) {}
+  } else {
+    try { _storedRoom = localStorage.getItem('ncv-room-id'); } catch(e) {}
+  }
   if (!_storedRoom) {
     _storedRoom = 'ncv-' + Math.random().toString(36).substr(2, 12);
     try { localStorage.setItem('ncv-room-id', _storedRoom); } catch(e) {}
@@ -389,7 +405,8 @@
 
   // Host WebRTC setup
   if (typeof Peer !== 'undefined') {
-    peer = new Peer();
+    const preferredPeerId = normalizeRoomId(window.__ncvFixedRoomId);
+    peer = preferredPeerId ? new Peer(preferredPeerId) : new Peer();
     peer.on('open', (id) => {
       console.log('[standalone] WebRTC Host Peer ID:', id);
       window.__webrtcHostId = id; // Make it available to sketch.js for QR code
@@ -484,6 +501,8 @@ const environmentState = {
   showConstellations: false,
   showConstellationLabels: false,
   showPlantLabels: false,
+  showCompassDirections: false,
+  skyAzimuthOffsetDeg: 0,
   forceTreeType: '',
   forceTreeless: false,
   cloudCover: 0.28,
@@ -538,6 +557,12 @@ function setDisplayPower(on) {
 
 function clamp01(n) {
   return Math.max(0, Math.min(1, n));
+}
+
+function normalizeAzimuthOffsetDeg(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return ((n + 180) % 360 + 360) % 360 - 180;
 }
 
 function setApproxLocalTimeFromLon(lon) {
@@ -972,6 +997,12 @@ io.on('connection', (socket) => {
       case 'toggle_labels':
         environmentState.showConstellationLabels = !!data.value;
         environmentState.showPlantLabels = !!data.value;
+        break;
+      case 'toggle_compass':
+        environmentState.showCompassDirections = !!data.value;
+        break;
+      case 'set_compass_offset':
+        environmentState.skyAzimuthOffsetDeg = normalizeAzimuthOffsetDeg(data.value);
         break;
       default:
         console.log(`[socket] Unknown remote command: ${command}`);

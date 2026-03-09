@@ -319,6 +319,7 @@ class StarField {
                   (Math.cos(alt) * Math.cos(lat));
     let az = Math.acos(Math.max(-1, Math.min(1, cosAz)));
     if (Math.sin(H) > 0) az = 2 * Math.PI - az;
+    az += (Number(env.skyAzimuthOffsetDeg) || 0) * (Math.PI / 180);
 
     const r  = (Math.PI / 2 - alt) / (Math.PI / 2);
     return {
@@ -467,6 +468,7 @@ class StarField {
       (env.constellationBrightness ?? 1).toFixed(2),
       (env.showConstellations ?? window._ncvShowConstellations) ? '1' : '0',
       env.showConstellationLabels ? '1' : '0',
+      Number(env.skyAzimuthOffsetDeg || 0).toFixed(1),
     ].join('|');
     if (this.wasNight === null) this.wasNight = nowNight;
     if (configStamp !== this.lastConfigStamp) {

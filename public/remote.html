@@ -139,6 +139,31 @@
       color: #e9fff0;
       box-shadow: 0 0 0 1px rgba(118, 226, 163, 0.4) inset;
     }
+    .advanced-row {
+      display: none;
+      margin-top: 16px;
+    }
+    .advanced-row.visible {
+      display: grid;
+    }
+    .advanced-stack {
+      display: grid;
+      gap: 8px;
+    }
+    .advanced-readout {
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-align: center;
+    }
+    .advanced-slider {
+      width: 100%;
+      accent-color: #76e2a3;
+    }
+    #btn-compass.on {
+      border-color: rgba(118, 226, 163, 0.9);
+      color: #e9fff0;
+      box-shadow: 0 0 0 1px rgba(118, 226, 163, 0.4) inset;
+    }
 
     @media (max-width: 520px) {
       .city-grid {
@@ -150,7 +175,7 @@
 </head>
 <body>
   <main class="wrap">
-    <h1>Canopy QR Remote</h1>
+    <h1 id="remote-title">Canopy QR Remote</h1>
     <p id="status" class="status">Connecting…</p>
 
     <section class="panel">
@@ -195,6 +220,17 @@
       <div class="row" style="margin-top: 20px;">
         <p class="section-title">Display Mode</p>
         <button id="btn-sleep" type="button" style="background: linear-gradient(120deg, #4c2121, #411a1a); border-color: rgba(241, 156, 156, 0.26);">Display: ON</button>
+      </div>
+
+      <div id="advanced-row" class="row advanced-row">
+        <p class="section-title">Advanced</p>
+        <div class="advanced-stack">
+          <button id="btn-compass" type="button">Compass Directions: OFF</button>
+          <button id="btn-lightning" type="button">Lighting Flash</button>
+          <div class="advanced-readout">Sky Rotation Offset: <b id="compass-offset-readout">0°</b></div>
+          <input id="compass-offset" class="advanced-slider" type="range" min="-180" max="180" step="1" value="0" />
+          <button id="btn-copy-cal-url" type="button">Copy Calibration URL</button>
+        </div>
       </div>
 
       <div id="log" class="log"></div>

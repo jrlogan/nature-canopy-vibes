@@ -8,6 +8,11 @@ Procedural ceiling-projection scene with location-aware sky, weather, seasons, a
 *Note: The web demo runs fully in your browser! Once you open the demo, press `L` on your keyboard to open the location control remote in a new tab, or press `Q` to show a QR code you can scan with your phone to control the scene remotely!*
 For keyboard-less installs, use the kiosk link above with `?qr=1` so the QR screen appears automatically at startup.
 You can also add `&qrTimeoutMs=60000` (1 minute) or `&qrPersist=1` (no auto-timeout).
+To keep one printed QR code stable across browser restarts, add a fixed room ID:
+`?qr=1&room=my-install-01`
+Use only letters, numbers, `_`, and `-` (3-64 chars).
+For a matching phone remote URL, use:
+`/remote.html?room=my-install-01`
 
 ## Recommended Usage
 
@@ -42,6 +47,11 @@ Post a small sign near the installation with:
 - Wi-Fi SSID and password
 - QR code to `http://<device-lan-ip>:3000/remote.html`
 - Short instruction: `Scan to change location`
+
+For a stable printed QR that survives browser restarts, include the same fixed room on both pages:
+
+- Display: `http://<device-lan-ip>:3000/?qr=1&room=my-install-01`
+- Phone: `http://<device-lan-ip>:3000/remote.html?room=my-install-01`
 
 ## Run
 
@@ -142,6 +152,38 @@ Remote intentionally has:
 - One toggle: `Constellations & Labels`
 
 Changing location also re-randomizes tree/canopy settings using location-aware woodedness.
+When a location is selected from phone remote, the QR overlay on display auto-hides.
+
+## Hidden Advanced Menu (Phone)
+
+The phone remote includes an advanced row that is hidden by default.
+
+How to open:
+
+1. Open `/remote.html` on phone.
+2. Tap the `Nature Canopy` title 5 times quickly.
+3. Advanced controls appear and remain enabled on that phone (saved in local storage).
+
+Advanced controls:
+
+- `Compass Overlay`: shows/hides directional compass markers on the display.
+- `Sky Offset` slider: rotates sky projection azimuth for projector calibration.
+- `Copy Cal URL`: copies a display URL that includes the current calibration offset.
+- `Lighting Flash`: triggers a manual lightning flash effect.
+
+Calibration URL parameters:
+
+- `room`: fixed shared room ID for stable reconnection (`room=my-install-01`)
+- `skyAzOffset`: initial sky azimuth calibration in degrees (`skyAzOffset=15`)
+
+Example calibrated kiosk URL:
+
+`https://jrlogan.github.io/nature-canopy-vibes/?qr=1&room=my-install-01&skyAzOffset=15`
+
+Notes:
+
+- Re-scanning the same fixed-room QR reconnects quickly if phone/browser backgrounding interrupts the session.
+- Weather fetch requests were updated to avoid stale error states from unsupported query combos.
 
 ## Special Test Locations
 

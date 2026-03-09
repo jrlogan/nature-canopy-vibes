@@ -8,6 +8,17 @@
 // ----------------------------------------------------------
 let starField = null, canopy = null, flock = null;
 let atmosphere = null, murmuration = null, gooseMigration = null;
+const startupUrlParams = new URLSearchParams(window.location.search);
+
+function parseStartupCompassOffsetDeg() {
+  const raw = startupUrlParams.get('skyAzOffset')
+    || startupUrlParams.get('compassOffset')
+    || startupUrlParams.get('azOffset')
+    || '0';
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 0;
+  return ((n + 180) % 360 + 360) % 360 - 180;
+}
 
 // ----------------------------------------------------------
 // Socket.io client
@@ -34,6 +45,7 @@ socket.on('env:sync', (state) => {
   const prevConst = !!env.showConstellations;
   const prevConstLabels = !!env.showConstellationLabels;
   const prevPlantLabels = !!env.showPlantLabels;
+  const prevSkyOffset = Number(env.skyAzimuthOffsetDeg) || 0;
   const prevLoc = `${env.liveLocationLat ?? ''},${env.liveLocationLon ?? ''},${env.liveDateISO ?? ''}`;
   env.apply(state);
   window._ncvShowConstellations = !!env.showConstellations;
@@ -53,7 +65,8 @@ socket.on('env:sync', (state) => {
   if (
     prevConst !== !!env.showConstellations ||
     prevConstLabels !== !!env.showConstellationLabels ||
-    prevPlantLabels !== !!env.showPlantLabels
+    prevPlantLabels !== !!env.showPlantLabels ||
+    prevSkyOffset !== (Number(env.skyAzimuthOffsetDeg) || 0)
   ) {
     window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
   }
@@ -111,6 +124,17 @@ socket.on('remote:command', (payload = {}) => {
       env.showPlantLabels = !!(payload.data && payload.data.value);
       window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
       break;
+    case 'toggle_compass':
+      env.showCompassDirections = !!(payload.data && payload.data.value);
+      break;
+    case 'set_compass_offset': {
+      const n = Number(payload.data && payload.data.value);
+      if (Number.isFinite(n)) {
+        env.skyAzimuthOffsetDeg = ((n + 180) % 360 + 360) % 360 - 180;
+        window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
+      }
+      break;
+    }
     case 'set_location':
       window._ncvBeginLocationTransition && _ncvBeginLocationTransition();
       // Phone picked a location; dismiss QR overlay to return focus to the scene.
@@ -137,6 +161,8 @@ const EnvironmentManager = {
   showConstellations: false,
   showConstellationLabels: false,
   showPlantLabels: false,
+  showCompassDirections: false,
+  skyAzimuthOffsetDeg: parseStartupCompassOffsetDeg(),
   forceTreeType: '',
   forceTreeless: false,
   cloudCover: 0.28, // 0–1
@@ -198,6 +224,8 @@ const EnvironmentManager = {
       showConstellations: this.showConstellations,
       showConstellationLabels: this.showConstellationLabels,
       showPlantLabels: this.showPlantLabels,
+      showCompassDirections: this.showCompassDirections,
+      skyAzimuthOffsetDeg: this.skyAzimuthOffsetDeg,
       forceTreeType: this.forceTreeType,
       forceTreeless: this.forceTreeless,
       cloudCover: this.cloudCover,
@@ -332,6 +360,7 @@ function draw() {
   canopy.draw();         // branches + leaves
   flock.drawFrontLayer();// birds/bats in front
   atmosphere.drawOverlay();
+  drawCompassDirectionsOverlay();
   drawProjectionEdgeFade();
   drawLocationTransitionOverlay();
   drawSleepOverlay();
@@ -362,11 +391,15 @@ function buildRemoteUrlForQR() {
   const remoteUrl = new URL('remote.html', window.location.href);
   const inStandalone = !!window.__ncvStandaloneMode;
   const supabaseEnabled = !!window.__ncvSupabaseHostEnabled;
+  const fixedRoomId = String(window.__ncvFixedRoomId || '').trim();
   let roomId = null;
 
   if (inStandalone) {
+    if (fixedRoomId) {
+      roomId = fixedRoomId;
+    }
     // Prefer Supabase room only when host-side Supabase relay is active.
-    if (supabaseEnabled && window.__supabaseRoomId) {
+    else if (supabaseEnabled && window.__supabaseRoomId) {
       roomId = window.__supabaseRoomId;
     } else if (window.__webrtcHostId) {
       roomId = window.__webrtcHostId;
@@ -493,6 +526,51 @@ function drawSleepOverlay() {
   noStroke();
   fill(0, 0, 0, 255);
   rect(0, 0, width, height);
+  pop();
+}
+
+function drawCompassDirectionsOverlay() {
+  if (!env.showCompassDirections) return;
+  const cx = width * 0.5;
+  const cy = height * 0.5;
+  const scale = min(width, height) * 0.5;
+  const tickOuter = scale * 0.985;
+  const tickInner = scale * 0.935;
+  const textR = scale * 0.895;
+  const textSizePx = constrain(min(width, height) * 0.034, 20, 42);
+  const dirs = [
+    ['N', 0],
+    ['E', HALF_PI],
+    ['S', PI],
+    ['W', -HALF_PI],
+  ];
+  const offsetRad = radians(Number(env.skyAzimuthOffsetDeg) || 0);
+
+  push();
+  textAlign(CENTER, CENTER);
+  textStyle(BOLD);
+  textSize(textSizePx);
+  stroke(210, 235, 255, 190);
+  strokeWeight(max(2, width * 0.0022));
+  fill(225, 245, 255, 235);
+  for (const [label, baseAz] of dirs) {
+    const az = baseAz + offsetRad;
+    const sinA = sin(az);
+    const cosA = cos(az);
+    const x1 = cx + sinA * tickInner;
+    const y1 = cy - cosA * tickInner;
+    const x2 = cx + sinA * tickOuter;
+    const y2 = cy - cosA * tickOuter;
+    line(x1, y1, x2, y2);
+    const tx = cx + sinA * textR;
+    const ty = cy - cosA * textR;
+    noStroke();
+    fill(8, 18, 30, 190);
+    text(label, tx + 2, ty + 2);
+    fill(225, 245, 255, 235);
+    text(label, tx, ty);
+    stroke(210, 235, 255, 190);
+  }
   pop();
 }
 

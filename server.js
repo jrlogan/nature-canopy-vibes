@@ -31,6 +31,8 @@ const environmentState = {
   showConstellations: false,
   showConstellationLabels: false,
   showPlantLabels: false,
+  showCompassDirections: false,
+  skyAzimuthOffsetDeg: 0,
   forceTreeType: '',
   forceTreeless: false,
   cloudCover: 0.28,
@@ -83,6 +85,12 @@ function setDisplayPower(on) {
 
 function clamp01(n) {
   return Math.max(0, Math.min(1, n));
+}
+
+function normalizeAzimuthOffsetDeg(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return ((n + 180) % 360 + 360) % 360 - 180;
 }
 
 function setApproxLocalTimeFromLon(lon) {
@@ -549,6 +557,12 @@ io.on('connection', (socket) => {
       case 'toggle_labels':
         environmentState.showConstellationLabels = !!data.value;
         environmentState.showPlantLabels = !!data.value;
+        break;
+      case 'toggle_compass':
+        environmentState.showCompassDirections = !!data.value;
+        break;
+      case 'set_compass_offset':
+        environmentState.skyAzimuthOffsetDeg = normalizeAzimuthOffsetDeg(data.value);
         break;
       default:
         console.log(`[socket] Unknown remote command: ${command}`);
