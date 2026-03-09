@@ -329,10 +329,71 @@ function draw() {
   drawLocationTransitionOverlay();
   drawSleepOverlay();
 
+  // QR Code for WebRTC Remote
+  drawQRCode();
+
   // Subtle note for opening the remote
   drawRemoteHint();
 
   if (showDebug) drawDebugHUD();
+}
+
+let qrCanvas = null;
+let qrGenerating = false;
+
+function drawQRCode() {
+  // Only display in standalone mode when a WebRTC host ID is available
+  if (!window.__webrtcHostId) return;
+
+  if (!qrCanvas && !qrGenerating && typeof QRCode !== 'undefined') {
+    qrGenerating = true;
+    const remoteUrl = new URL('remote.html', window.location.href);
+    remoteUrl.searchParams.set('room', window.__webrtcHostId);
+
+    const tempDiv = document.createElement('div');
+    new QRCode(tempDiv, {
+      text: remoteUrl.toString(),
+      width: 128,
+      height: 128,
+      colorDark: "#000000",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.L
+    });
+
+    // Extract the canvas created by qrcode.js
+    setTimeout(() => {
+      const cvs = tempDiv.querySelector('canvas');
+      if (cvs) {
+        qrCanvas = document.createElement('canvas');
+        qrCanvas.width = cvs.width;
+        qrCanvas.height = cvs.height;
+        qrCanvas.getContext('2d').drawImage(cvs, 0, 0);
+      }
+    }, 100);
+  }
+
+  if (qrCanvas) {
+    push();
+    // Position at bottom left
+    const pad = 20;
+    const size = 100;
+
+    // Draw a subtle background for the QR code
+    fill(255, 255, 255, 200);
+    noStroke();
+    rect(pad - 4, height - pad - size - 4, size + 8, size + 8, 8);
+
+    // Draw the QR code
+    drawingContext.drawImage(qrCanvas, pad, height - pad - size, size, size);
+
+    // Instruction text
+    fill(255, 255, 255, 180);
+    textSize(11);
+    textAlign(LEFT, BOTTOM);
+    textFont('monospace');
+    text("Scan to control", pad, height - pad - size - 12);
+    pop();
+  }
 }
 
 function drawRemoteHint() {

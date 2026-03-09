@@ -37,18 +37,62 @@
     return clientSocket;
   };
 
-  // If we are NOT the server tab, we just listen to server events
+  // Optional WebRTC support using PeerJS
+  let peer = null;
+  let webrtcConn = null;
+
+  // If we are NOT the server tab, we check if we need to connect via WebRTC
   if (!isServerTab) {
-    channel.onmessage = function(msg) {
-      const { type, event, data } = msg.data;
-      if (type === 'server_emit') {
-        if (clientListeners[event]) {
-          clientListeners[event].forEach(cb => {
-            try { cb(data); } catch (e) { console.error(e); }
-          });
+    const urlParams = new URLSearchParams(window.location.search);
+    const room = urlParams.get('room');
+
+    if (room && typeof Peer !== 'undefined') {
+      console.log('[standalone] Found room param, attempting WebRTC to:', room);
+      peer = new Peer();
+
+      peer.on('open', (id) => {
+        console.log('[standalone] WebRTC peer open, id:', id);
+        webrtcConn = peer.connect(room);
+
+        webrtcConn.on('open', () => {
+          console.log('[standalone] WebRTC connected to host!');
+          webrtcConn.send({ type: 'client_connect', socketId: clientSocket.id });
+        });
+
+        webrtcConn.on('data', (msg) => {
+          if (msg.type === 'server_emit') {
+            if (clientListeners[msg.event]) {
+              clientListeners[msg.event].forEach(cb => {
+                try { cb(msg.data); } catch (e) { console.error(e); }
+              });
+            }
+          }
+        });
+      });
+
+      // Override emit to send over WebRTC if connected
+      const origEmit = clientSocket.emit;
+      clientSocket.emit = function(event, data) {
+        if (webrtcConn && webrtcConn.open) {
+          webrtcConn.send({ type: 'client_emit', event, data, socketId: clientSocket.id });
+        } else {
+          origEmit.call(clientSocket, event, data);
         }
-      }
-    };
+      };
+
+    } else {
+      // Normal BroadcastChannel logic for same-device cross-tab
+      channel.onmessage = function(msg) {
+        const { type, event, data } = msg.data;
+        if (type === 'server_emit') {
+          if (clientListeners[event]) {
+            clientListeners[event].forEach(cb => {
+              try { cb(data); } catch (e) { console.error(e); }
+            });
+          }
+        }
+      };
+    }
     return; // Stop here for remote tab, don't run server logic
   }
 
@@ -72,18 +116,58 @@
     }
   };
 
-  channel.onmessage = function(msg) {
-    const { type, event, data, socketId } = msg.data;
+  // Forward emits to WebRTC peers
+  const webrtcPeers = new Set();
+
+  const handleClientMessage = function(msg, originConn = null) {
+    const { type, event, data, socketId } = msg;
 
     if (type === 'client_emit') {
-       const socket = getOrCreateFakeSocket(socketId);
+       const socket = getOrCreateFakeSocket(socketId, originConn);
        socket._trigger(event, data);
     } else if (type === 'client_connect') {
-       const socket = getOrCreateFakeSocket(socketId);
+       const socket = getOrCreateFakeSocket(socketId, originConn);
        if (serverIoListeners['connection']) {
           serverIoListeners['connection'].forEach(cb => cb(socket));
        }
     }
+  };
+
+  channel.onmessage = function(msg) {
+    handleClientMessage(msg.data);
+  };
+
+  // Host WebRTC setup
+  if (typeof Peer !== 'undefined') {
+    peer = new Peer();
+    peer.on('open', (id) => {
+      console.log('[standalone] WebRTC Host Peer ID:', id);
+      window.__webrtcHostId = id; // Make it available to sketch.js for QR code
+    });
+
+    peer.on('connection', (conn) => {
+      console.log('[standalone] WebRTC incoming connection from:', conn.peer);
+      webrtcPeers.add(conn);
+
+      conn.on('data', (data) => {
+        handleClientMessage(data, conn);
+      });
+
+      conn.on('close', () => {
+        webrtcPeers.delete(conn);
+      });
+    });
+  }
+
+  const origEmit = serverIo.emit;
+  serverIo.emit = function(event, data) {
+    origEmit(event, data);
+    // Also send to all connected WebRTC peers
+    webrtcPeers.forEach(conn => {
+      if (conn.open) {
+        conn.send({ type: 'server_emit', event, data });
+      }
+    });
   };
 
   const fakeSockets = {};
