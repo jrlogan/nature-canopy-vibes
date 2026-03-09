@@ -192,15 +192,11 @@ function updateCompassOffsetUI() {
 function setAdvancedUnlocked(unlocked) {
   advancedUnlocked = !!unlocked;
   if (advancedRowEl) advancedRowEl.classList.toggle('visible', advancedUnlocked);
-  try {
-    localStorage.setItem('ncv-remote-advanced', advancedUnlocked ? '1' : '0');
-  } catch (e) {}
 }
 
 function initAdvancedUnlock() {
-  try {
-    if (localStorage.getItem('ncv-remote-advanced') === '1') setAdvancedUnlocked(true);
-  } catch (e) {}
+  // Always start hidden on each page load so public users only see basic controls.
+  setAdvancedUnlocked(false);
 
   if (remoteTitleEl) {
     remoteTitleEl.addEventListener('click', (e) => {

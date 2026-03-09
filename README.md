@@ -162,7 +162,7 @@ How to open:
 
 1. Open `/remote.html` on phone.
 2. Tap the `Nature Canopy` title 5 times quickly.
-3. Advanced controls appear and remain enabled on that phone (saved in local storage).
+3. Advanced controls appear for that session only.
 
 Advanced controls:
 
