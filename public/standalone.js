@@ -3,7 +3,7 @@
     return; // Real socket.io is loaded, do nothing
   }
 
-  console.log('[standalone] Socket.io not found. Initialising standalone mode. supabase SDK:', typeof supabase !== 'undefined' ? 'loaded' : 'MISSING');
+  console.log('[standalone] Socket.io not found. Initialising standalone mode.');
 
   const hasBroadcastChannel = typeof BroadcastChannel !== 'undefined';
   const channel = hasBroadcastChannel ? new BroadcastChannel('nature-canopy-vibes') : null;
@@ -51,6 +51,99 @@
     return clientSocket;
   };
 
+  // ── Minimal Supabase Realtime WebSocket client (no SDK needed) ──────────────
+  // Implements just enough of the Phoenix channel protocol to send/receive
+  // Broadcast events. Replaces the @supabase/supabase-js CDN dependency entirely.
+  function createSbChannel(supabaseUrl, anonKey, channelName) {
+    const wsUrl = supabaseUrl.replace(/^https?:\/\//, 'wss://')
+      + '/realtime/v1/websocket?apikey=' + encodeURIComponent(anonKey) + '&vsn=1.0.0';
+    let ws = null;
+    let refN = 0;
+    let joinRef = null;
+    let subscribed = false;
+    const listeners = {};
+    let heartbeatTimer = null;
+
+    const nextRef = () => String(++refN);
+
+    const sendRaw = function(msg) {
+      if (ws && ws.readyState === 1 /* OPEN */) {
+        try { ws.send(JSON.stringify(msg)); } catch(e) {}
+      }
+    };
+
+    const doJoin = function() {
+      joinRef = nextRef();
+      sendRaw({
+        topic: 'realtime:' + channelName,
+        event: 'phx_join',
+        payload: { config: { broadcast: { self: false } }, access_token: anonKey },
+        ref: joinRef,
+        join_ref: joinRef
+      });
+    };
+
+    const connect = function() {
+      try { ws = new WebSocket(wsUrl); } catch(e) {
+        console.warn('[supabase-ws] WebSocket connect failed:', e);
+        setTimeout(connect, 5000);
+        return;
+      }
+      ws.onopen = function() {
+        doJoin();
+        heartbeatTimer = setInterval(function() {
+          sendRaw({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: nextRef(), join_ref: null });
+        }, 25000);
+      };
+      ws.onmessage = function(e) {
+        var msg;
+        try { msg = JSON.parse(e.data); } catch(ex) { return; }
+        if (msg.event === 'phx_reply' && msg.ref === joinRef && msg.payload && msg.payload.status === 'ok') {
+          subscribed = true;
+          console.log('[supabase-ws] Subscribed to channel:', channelName);
+          (listeners['_sub'] || []).forEach(function(cb) { try { cb('SUBSCRIBED'); } catch(ex) {} });
+        }
+        if (msg.event === 'broadcast' && msg.payload && msg.payload.event) {
+          var evName = msg.payload.event;
+          (listeners[evName] || []).forEach(function(cb) { try { cb({ payload: msg.payload.payload }); } catch(ex) {} });
+        }
+      };
+      ws.onclose = function() {
+        subscribed = false;
+        clearInterval(heartbeatTimer);
+        setTimeout(connect, 3000);
+      };
+      ws.onerror = function(e) { console.warn('[supabase-ws] error:', e); };
+    };
+
+    connect();
+
+    return {
+      on: function(type, filter, cb) {
+        var evName = (filter && filter.event) ? filter.event : type;
+        if (!listeners[evName]) listeners[evName] = [];
+        listeners[evName].push(cb);
+        return this;
+      },
+      subscribe: function(cb) {
+        if (!listeners['_sub']) listeners['_sub'] = [];
+        listeners['_sub'].push(cb);
+        if (subscribed) setTimeout(function() { try { cb('SUBSCRIBED'); } catch(e) {} }, 0);
+        return this;
+      },
+      send: function(msg) {
+        sendRaw({
+          topic: 'realtime:' + channelName,
+          event: 'broadcast',
+          payload: { type: 'broadcast', event: msg.event, payload: msg.payload },
+          ref: nextRef(),
+          join_ref: joinRef
+        });
+        return Promise.resolve();
+      }
+    };
+  }
+
   // Optional WebRTC support using PeerJS
   let peer = null;
   let webrtcConn = null;
@@ -61,19 +154,15 @@
     const room = urlParams.get('room');
     const _cfg = window.NCV_CONFIG || {};
 
-    // Diagnostics so the console shows exactly why a transport was or wasn't chosen.
-    console.log('[standalone] room param:', room || '(none)');
-    console.log('[standalone] supabase SDK:', typeof supabase !== 'undefined' ? 'loaded' : 'MISSING');
-    console.log('[standalone] config url set:', !!_cfg.supabaseUrl, '| key set:', !!_cfg.supabaseAnonKey);
+    console.log('[standalone] room param:', room || '(none)', '| config url set:', !!_cfg.supabaseUrl, '| key set:', !!_cfg.supabaseAnonKey);
 
-    // ── Option 1: Supabase Realtime Broadcast (preferred — no eval, no CSP issues) ──
-    if (room && _cfg.supabaseUrl && _cfg.supabaseAnonKey && typeof supabase !== 'undefined') {
-      console.log('[standalone] Connecting via Supabase to room:', room);
+    // ── Option 1: Supabase Realtime via raw WebSocket (no SDK dependency) ──
+    if (room && _cfg.supabaseUrl && _cfg.supabaseAnonKey) {
+      console.log('[standalone] Connecting via Supabase WS to room:', room);
       const socket = window.io();
 
       try {
-        const sb = supabase.createClient(_cfg.supabaseUrl, _cfg.supabaseAnonKey);
-        const sbCh = sb.channel(room, { config: { broadcast: { self: false } } });
+        const sbCh = createSbChannel(_cfg.supabaseUrl, _cfg.supabaseAnonKey, room);
 
         // Receive env:sync from host and dispatch to registered listeners (e.g. remote.js)
         sbCh.on('broadcast', { event: 'env:sync' }, function({ payload }) {
@@ -164,9 +253,15 @@
   }
 
   // ==== SERVER LOGIC BEGINS ====
-  // Generate the Supabase room ID immediately (synchronously) so the QR code
-  // always has a room param regardless of whether the SDK has loaded yet.
-  window.__supabaseRoomId = 'ncv-' + Math.random().toString(36).substr(2, 12);
+  // Persist the room ID in localStorage so the phone URL stays valid across
+  // canvas refreshes — no need to re-scan the QR every time.
+  var _storedRoom = null;
+  try { _storedRoom = localStorage.getItem('ncv-room-id'); } catch(e) {}
+  if (!_storedRoom) {
+    _storedRoom = 'ncv-' + Math.random().toString(36).substr(2, 12);
+    try { localStorage.setItem('ncv-room-id', _storedRoom); } catch(e) {}
+  }
+  window.__supabaseRoomId = _storedRoom;
 
   const serverIoListeners = {};
   const serverIo = {
@@ -835,21 +930,16 @@ io.on('connection', (socket) => {
 // Only activates when config.js has valid Supabase credentials.
 (function initSupabaseHost() {
   const _cfg = window.NCV_CONFIG || {};
-  console.log('[supabase:host] config url set:', !!_cfg.supabaseUrl, '| key set:', !!_cfg.supabaseAnonKey, '| SDK:', typeof supabase !== 'undefined' ? 'loaded' : 'MISSING');
+  console.log('[supabase:host] config url set:', !!_cfg.supabaseUrl, '| key set:', !!_cfg.supabaseAnonKey);
   if (!_cfg.supabaseUrl || !_cfg.supabaseAnonKey) {
     console.warn('[supabase:host] Credentials missing — cross-device remote disabled. Check config.js.');
-    return;
-  }
-  if (typeof supabase === 'undefined') {
-    console.warn('[supabase] SDK not loaded — cross-device remote disabled');
     return;
   }
 
   const roomId = window.__supabaseRoomId; // already generated synchronously above
 
   try {
-    const sb = supabase.createClient(_cfg.supabaseUrl, _cfg.supabaseAnonKey);
-    const sbCh = sb.channel(roomId, { config: { broadcast: { self: false } } });
+    const sbCh = createSbChannel(_cfg.supabaseUrl, _cfg.supabaseAnonKey, roomId);
 
     // Ensure the fake server-side socket for Supabase remotes is fully initialised
     // (connection handlers registered) before we dispatch any commands to it.

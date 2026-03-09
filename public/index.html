@@ -75,11 +75,8 @@
     }
   </script>
 
-  <!-- 2. Supabase SDK + project config — for cross-device remote control.
-       The anon key is safe to expose; Supabase Realtime Broadcast needs no DB access.
-       Primary: unpkg.com (same CDN as PeerJS — reliably loads here). Fallback: jsDelivr. -->
-  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"
-          onerror="document.write('<script src=\'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js\'><\/script>')"></script>
+  <!-- 2. Project config — Supabase credentials for cross-device remote control.
+       No SDK needed: standalone.js uses raw WebSocket to Supabase Realtime. -->
   <script src="config.js"></script>
 
   <!-- 3. Standalone mode — must load BEFORE socket.io so window.io is always defined.
