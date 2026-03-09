@@ -108,12 +108,13 @@
           (listeners[evName] || []).forEach(function(cb) { try { cb({ payload: msg.payload.payload }); } catch(ex) {} });
         }
       };
-      ws.onclose = function() {
+      ws.onclose = function(e) {
         subscribed = false;
         clearInterval(heartbeatTimer);
+        console.warn('[supabase-ws] closed code=' + e.code + ' reason=' + (e.reason || 'none'));
         setTimeout(connect, 3000);
       };
-      ws.onerror = function(e) { console.warn('[supabase-ws] error:', e); };
+      ws.onerror = function(e) { console.warn('[supabase-ws] WebSocket error (check Network tab for details)'); };
     };
 
     connect();
