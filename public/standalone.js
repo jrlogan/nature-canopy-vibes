@@ -88,6 +88,10 @@
           }
           // Ask host for an immediate state snapshot
           sbCh.send({ type: 'broadcast', event: 'remote:joined', payload: {} });
+          // Retry once in case host wasn't subscribed yet
+          setTimeout(function() {
+            sbCh.send({ type: 'broadcast', event: 'remote:joined', payload: {} });
+          }, 2000);
         });
 
         // Route all socket.emit calls to the Supabase channel
@@ -836,8 +840,16 @@ io.on('connection', (socket) => {
     const sb = supabase.createClient(_cfg.supabaseUrl, _cfg.supabaseAnonKey);
     const sbCh = sb.channel(roomId, { config: { broadcast: { self: false } } });
 
+    // Ensure the fake server-side socket for Supabase remotes is fully initialised
+    // (connection handlers registered) before we dispatch any commands to it.
+    function ensureSupabaseRemoteConnected() {
+      if (fakeSockets['supabase-remote']) return;
+      handleClientMessage({ type: 'client_connect', socketId: 'supabase-remote' });
+    }
+
     // Receive commands from remote phone
     sbCh.on('broadcast', { event: 'remote:command' }, function({ payload }) {
+      ensureSupabaseRemoteConnected();
       handleClientMessage({
         type: 'client_emit', event: 'remote:command',
         data: payload, socketId: 'supabase-remote'
@@ -846,6 +858,7 @@ io.on('connection', (socket) => {
 
     // When a new remote client joins, immediately send current state
     sbCh.on('broadcast', { event: 'remote:joined' }, function() {
+      ensureSupabaseRemoteConnected();
       sbCh.send({ type: 'broadcast', event: 'env:sync', payload: environmentState });
     });
 
