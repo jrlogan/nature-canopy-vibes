@@ -3,8 +3,11 @@
 Procedural ceiling-projection scene with location-aware sky, weather, seasons, and tree ecology.
 
 🌟 **[Try the Live Web Demo here!](https://jrlogan.github.io/nature-canopy-vibes/)** 🌟
+🌟 **[Kiosk Start (auto-show QR on boot)](https://jrlogan.github.io/nature-canopy-vibes/?qr=1)** 🌟
 
 *Note: The web demo runs fully in your browser! Once you open the demo, press `L` on your keyboard to open the location control remote in a new tab, or press `Q` to show a QR code you can scan with your phone to control the scene remotely!*
+For keyboard-less installs, use the kiosk link above with `?qr=1` so the QR screen appears automatically at startup.
+You can also add `&qrTimeoutMs=60000` (1 minute) or `&qrPersist=1` (no auto-timeout).
 
 ## Recommended Usage
 
@@ -126,9 +129,10 @@ After reboot, the projector should open directly to the display scene.
 - Control panel is hidden on startup.
 - Debug HUD is off on startup.
 - Keyboard:
-  - `C` toggles panel
   - `D` toggles debug HUD
-  - `Space` randomizes scene
+  - `L` opens the location control remote
+  - `C` toggles panel
+  - `Q` toggles the QR overlay
 
 ## Remote (Simple Mode)
 

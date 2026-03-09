@@ -71,6 +71,12 @@
   <!-- PeerJS and QRCode for standalone WebRTC control -->
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script>
+    // CDN fallback for environments where jsDelivr is blocked.
+    if (typeof QRCode === 'undefined') {
+      document.write('<script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"><\\/script>');
+    }
+  </script>
   <script src="standalone.js"></script>
 
   <!-- 3. Visual subsystems (order matters: each builds on the previous) -->

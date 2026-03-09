@@ -332,15 +332,24 @@ function draw() {
   // Check if QR code should be generated for the overlay
   handleQROverlay();
 
-  // Subtle note for opening the remote
-  drawRemoteHint();
-
   if (showDebug) drawDebugHUD();
 }
 
 let qrGenerated = false;
 let qrVisible = false;
 let qrTimeoutId = null;
+let qrFallbackShown = false;
+const qrUrlParams = new URLSearchParams(window.location.search);
+const qrShowOnStart = ['1', 'true', 'yes', 'on'].includes(
+  String(qrUrlParams.get('qr') || '').toLowerCase()
+);
+const qrPersistent = ['1', 'true', 'yes', 'on'].includes(
+  String(qrUrlParams.get('qrPersist') || '').toLowerCase()
+);
+const qrTimeoutMs = Math.max(
+  0,
+  Number.parseInt(qrUrlParams.get('qrTimeoutMs') || '30000', 10) || 30000
+);
 
 function setQROverlayVisibility(visible) {
   const overlay = document.getElementById('qr-overlay');
@@ -350,26 +359,54 @@ function setQROverlayVisibility(visible) {
     overlay.classList.add('visible');
     qrVisible = true;
 
-    // Auto-hide after 30 seconds
     if (qrTimeoutId) clearTimeout(qrTimeoutId);
-    qrTimeoutId = setTimeout(() => {
-      setQROverlayVisibility(false);
-    }, 30000);
+    if (!qrPersistent && qrTimeoutMs > 0) {
+      qrTimeoutId = setTimeout(() => {
+        setQROverlayVisibility(false);
+      }, qrTimeoutMs);
+    }
   } else {
     overlay.classList.remove('visible');
     qrVisible = false;
   }
 }
 
+function showQRFallbackOverlay() {
+  if (qrFallbackShown) return;
+  qrFallbackShown = true;
+  setQROverlayVisibility(true);
+
+  const remoteUrl = new URL('remote.html', window.location.href);
+  const qrContainer = document.getElementById('qr-container');
+  if (qrContainer) {
+    qrContainer.innerHTML = '<div style="max-width: 520px; color: #111; text-align: center; font: 600 18px/1.4 monospace;">QR script failed to load.<br>Open this URL on your phone:<br><br><a href="' +
+      remoteUrl.toString() +
+      '" target="_blank" rel="noopener noreferrer" style="color:#0b57d0; word-break: break-all;">' +
+      remoteUrl.toString() +
+      '</a></div>';
+  }
+
+  const sub = document.querySelector('.qr-subtext');
+  if (sub) {
+    sub.textContent = "Press 'L' to open local remote, or click anywhere to dismiss.";
+  }
+}
+
 function handleQROverlay() {
-  // Only setup once in standalone mode when a WebRTC host ID is available
-  if (!window.__webrtcHostId || qrGenerated) return;
-  if (typeof QRCode === 'undefined') return;
+  // Setup once when QRCode is available.
+  // In server mode we use /remote.html; in standalone we append ?room=<peer-id>.
+  if (qrGenerated) return;
+  if (typeof QRCode === 'undefined') {
+    if (qrShowOnStart) showQRFallbackOverlay();
+    return;
+  }
 
   qrGenerated = true;
 
   const remoteUrl = new URL('remote.html', window.location.href);
-  remoteUrl.searchParams.set('room', window.__webrtcHostId);
+  if (window.__webrtcHostId) {
+    remoteUrl.searchParams.set('room', window.__webrtcHostId);
+  }
 
   const canvasElement = document.getElementById('qr-canvas');
 
@@ -383,8 +420,8 @@ function handleQROverlay() {
     if (error) console.error("QR Code Error:", error);
   });
 
-  // Show it automatically for the first 30 seconds
-  setQROverlayVisibility(true);
+  // Optional startup QR mode for keyboard-less kiosks, e.g. ?qr=1
+  if (qrShowOnStart) setQROverlayVisibility(true);
 
   // Allow clicking anywhere on the overlay to dismiss it
   const overlay = document.getElementById('qr-overlay');
@@ -393,23 +430,6 @@ function handleQROverlay() {
   }
 }
 
-
-function drawRemoteHint() {
-  push();
-  noStroke();
-  fill(255, 255, 255, 30);
-  textAlign(RIGHT, BOTTOM);
-  textSize(10);
-  // Ensure the hint uses a generic font and stays fully subtle
-  textFont('monospace');
-
-  const hintText = window.__webrtcHostId ?
-    "Press 'L' for local remote | 'Q' for mobile QR" :
-    "Press 'L' to open location control";
-
-  text(hintText, width - 10, height - 10);
-  pop();
-}
 
 function drawSleepOverlay() {
   if (!env.sleeping) return;
@@ -516,7 +536,7 @@ function keyPressed() {
   else if (key === 'd' || key === 'D') { window._ncvToggleDebug  && _ncvToggleDebug(); }
   else if (key === 'l' || key === 'L') { window.open('remote.html', '_blank'); }
   else if (key === 'q' || key === 'Q') {
-    if (window.__webrtcHostId) setQROverlayVisibility(!qrVisible);
+    if (qrGenerated) setQROverlayVisibility(!qrVisible);
   }
 }
 
