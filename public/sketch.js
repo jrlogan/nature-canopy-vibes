@@ -356,6 +356,27 @@ const qrTimeoutMs = Math.max(
   Number.parseInt(qrUrlParams.get('qrTimeoutMs') || '30000', 10) || 30000
 );
 
+function buildRemoteUrlForQR() {
+  const remoteUrl = new URL('remote.html', window.location.href);
+  const inStandalone = !!window.__ncvStandaloneMode;
+  const supabaseEnabled = !!window.__ncvSupabaseHostEnabled;
+  let roomId = null;
+
+  if (inStandalone) {
+    // Prefer Supabase room only when host-side Supabase relay is active.
+    if (supabaseEnabled && window.__supabaseRoomId) {
+      roomId = window.__supabaseRoomId;
+    } else if (window.__webrtcHostId) {
+      roomId = window.__webrtcHostId;
+    }
+    // In standalone mode, a room is required for cross-device phone control.
+    if (!roomId) return null;
+  }
+
+  if (roomId) remoteUrl.searchParams.set('room', roomId);
+  return remoteUrl;
+}
+
 function setQROverlayVisibility(visible) {
   const overlay = document.getElementById('qr-overlay');
   if (!overlay) return;
@@ -388,12 +409,10 @@ function showQRFallbackOverlay() {
       if (_src.includes('room=')) { setQROverlayVisibility(true); return; }
     }
   }
+  const remoteUrl = buildRemoteUrlForQR();
+  if (!remoteUrl) return;
   qrFallbackShown = true;
   qrGenerated = true; // allow 'q' key to toggle the overlay
-
-  const remoteUrl = new URL('remote.html', window.location.href);
-  const _roomId = window.__supabaseRoomId || window.__webrtcHostId;
-  if (_roomId) remoteUrl.searchParams.set('room', _roomId);
   const urlStr = remoteUrl.toString();
 
   const qrContainer = document.getElementById('qr-container');
@@ -430,11 +449,9 @@ function handleQROverlay() {
     return;
   }
 
+  const remoteUrl = buildRemoteUrlForQR();
+  if (!remoteUrl) return;
   qrGenerated = true;
-
-  const remoteUrl = new URL('remote.html', window.location.href);
-  const _qrRoomId = window.__supabaseRoomId || window.__webrtcHostId;
-  if (_qrRoomId) remoteUrl.searchParams.set('room', _qrRoomId);
 
   const canvasElement = document.getElementById('qr-canvas');
 

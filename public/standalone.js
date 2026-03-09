@@ -4,6 +4,8 @@
   }
 
   console.log('[standalone] Socket.io not found. Initialising standalone mode.');
+  window.__ncvStandaloneMode = true;
+  window.__ncvSupabaseHostEnabled = false;
 
   const hasBroadcastChannel = typeof BroadcastChannel !== 'undefined';
   const channel = hasBroadcastChannel ? new BroadcastChannel('nature-canopy-vibes') : null;
@@ -29,10 +31,11 @@
         clientListeners[event].push(callback);
       },
       emit: function(event, data) {
-        // Route directly to the in-page server (handleClientMessage is defined below
-        // in the same IIFE and is fully initialised by the time this is ever called).
-        // This avoids BroadcastChannel, which cannot deliver messages to the same tab.
-        handleClientMessage({ type: 'client_emit', event, data, socketId: clientSocket.id });
+        // In the host tab, route directly to the in-page server (same-tab path).
+        // In remote tabs, there is no in-page server; use channel/network transports only.
+        if (isServerTab) {
+          handleClientMessage({ type: 'client_emit', event, data, socketId: clientSocket.id });
+        }
         // Also broadcast so any other open tabs (remote.html) receive it.
         channelPost({ type: 'client_emit', event, data, socketId: clientSocket.id });
       }
@@ -44,7 +47,9 @@
         clientListeners['connect'].forEach(function(cb) { cb(); });
       }
       // Announce to the in-page server that this client has connected.
-      handleClientMessage({ type: 'client_connect', socketId: clientSocket.id });
+      if (isServerTab) {
+        handleClientMessage({ type: 'client_connect', socketId: clientSocket.id });
+      }
       channelPost({ type: 'client_connect', socketId: clientSocket.id });
     }, 10);
 
@@ -933,9 +938,11 @@ io.on('connection', (socket) => {
   const _cfg = window.NCV_CONFIG || {};
   console.log('[supabase:host] config url set:', !!_cfg.supabaseUrl, '| key set:', !!_cfg.supabaseAnonKey);
   if (!_cfg.supabaseUrl || !_cfg.supabaseAnonKey) {
+    window.__ncvSupabaseHostEnabled = false;
     console.warn('[supabase:host] Credentials missing — cross-device remote disabled. Check config.js.');
     return;
   }
+  window.__ncvSupabaseHostEnabled = true;
 
   const roomId = window.__supabaseRoomId; // already generated synchronously above
 
