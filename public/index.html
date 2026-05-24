@@ -62,18 +62,14 @@
     </div>
   </div>
 
-  <!-- 1. p5.js — pinned version for Raspberry Pi stability -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+  <!-- 1. p5.js — pinned version for Raspberry Pi stability.
+       Vendored under vendor/ so a flaky kiosk WiFi can't black out the projector
+       and so the GitHub Pages demo isn't at the mercy of CDN outages. -->
+  <script src="vendor/p5.min.js"></script>
 
-  <!-- PeerJS and QRCode for standalone WebRTC control -->
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script>
-    // CDN fallback for environments where jsDelivr is blocked.
-    if (typeof QRCode === 'undefined') {
-      document.write('<script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"><\\/script>');
-    }
-  </script>
+  <!-- PeerJS and QRCode for standalone WebRTC + QR overlay -->
+  <script src="vendor/peerjs.min.js"></script>
+  <script src="vendor/qrcode.min.js"></script>
 
   <!-- 2. Project config — Supabase credentials for cross-device remote control.
        No SDK needed: standalone.js uses raw WebSocket to Supabase Realtime. -->

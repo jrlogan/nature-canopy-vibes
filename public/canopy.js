@@ -1233,7 +1233,7 @@ class Canopy {
     const reachScale = Math.max(0.22, Math.min(2.4, 1.0 + reachDelta * 2.0));
     this._runtimeLenMul = Math.max(0.14, openScale * openAbsMul * reachScale);
 
-    const t = frameCount * (0.0018 + env.windSpeed * 0.004);
+    const t = window._ncvAnimT * (0.0018 + env.windSpeed * 0.004);
     this._updateGust();
     this.perchNodes = [];
     for (const root of this.trees) {
@@ -1257,7 +1257,7 @@ class Canopy {
         }
         return;
       }
-      g.progress += g.speed;
+      g.progress += g.speed * window._ncvAnimDt;
       if (g.progress > 1.28) g.active = false;
     }
 
@@ -1399,7 +1399,7 @@ class Canopy {
       const isTwilight = (tod >= 5.5 && tod < 7) || (tod > 19 && tod < 21);
       const sun = (!isNight && !isTwilight) ? (1 - abs(tod - 13) / 7) : 0;
       const flashK = constrain((window._ncvFlashAlpha || 0) / 255, 0, 1);
-      const ft = frameCount;
+      const ft = window._ncvAnimT;
       for (const root of this.trees) {
         const style = this._treeStyles?.[root.treeId];
         if (!style || style.type !== 'palm' || !root.palm) continue;
@@ -1874,7 +1874,7 @@ class Canopy {
     const isDawn     = tod < 13;
     const sun        = (!isNight && !isTwilight) ? (1 - abs(tod - 13) / 7) : 0;
     const flashK     = constrain((window._ncvFlashAlpha || 0) / 255, 0, 1);
-    const ft         = frameCount;
+    const ft         = window._ncvAnimT;
 
     // Stabilized adaptive stepping with hysteresis to prevent pop flicker.
     let targetStep = 1;

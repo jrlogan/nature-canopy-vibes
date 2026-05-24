@@ -66,20 +66,69 @@ const environmentState = {
 let lastLiveFetchAt = 0;
 
 const { exec } = require('child_process');
-function setDisplayPower(on) {
+
+// Build an env that lets desktop-session tools (wlr-randr, xset) find the
+// compositor when this process is launched from systemd, where WAYLAND_DISPLAY
+// / DISPLAY / XDG_RUNTIME_DIR are normally absent. The defaults below match
+// the typical single-user Pi kiosk (uid 1000, seat 0).
+function sessionEnv() {
+  const env = { ...process.env };
+  if (!env.XDG_RUNTIME_DIR) {
+    const uid = typeof process.getuid === 'function' ? process.getuid() : 1000;
+    env.XDG_RUNTIME_DIR = `/run/user/${uid}`;
+  }
+  if (!env.WAYLAND_DISPLAY) env.WAYLAND_DISPLAY = 'wayland-0';
+  if (!env.DISPLAY) env.DISPLAY = ':0';
+  return env;
+}
+
+function execProbe(cmd) {
+  return new Promise((resolve) => {
+    exec(cmd, { env: sessionEnv(), timeout: 2000 }, (err, stdout) => {
+      resolve({ err, stdout: String(stdout || '') });
+    });
+  });
+}
+
+// Probe once, then cache. wlr-randr (Wayland — default on Pi OS Bookworm+) is
+// tried first; xset (X11) and vcgencmd (legacy Pi firmware) are fallbacks.
+async function detectDisplayStrategy() {
+  const wlr = await execProbe('wlr-randr');
+  if (!wlr.err) {
+    // Output names appear at column 0; descriptions are indented. Grab the
+    // first one (e.g. "HDMI-A-1").
+    const m = wlr.stdout.match(/^([A-Za-z0-9._-]+)\s/m);
+    if (m) return { kind: 'wlr-randr', output: m[1] };
+  }
+  const xset = await execProbe('xset q');
+  if (!xset.err) return { kind: 'xset' };
+  const vcgen = await execProbe('vcgencmd version');
+  if (!vcgen.err) return { kind: 'vcgencmd' };
+  return { kind: 'none' };
+}
+
+let displayStrategyPromise = null;
+function getDisplayStrategy() {
+  if (!displayStrategyPromise) displayStrategyPromise = detectDisplayStrategy();
+  return displayStrategyPromise;
+}
+
+async function setDisplayPower(on) {
   console.log(`[power] Setting display power: ${on ? 'ON' : 'OFF'}`);
-  // Try DPMS (X11)
-  exec(on ? 'xset dpms force on' : 'xset dpms force off', (err) => {
-    if (err) {
-      // Fallback: Try vcgencmd (Raspberry Pi legacy)
-      exec(`vcgencmd display_power ${on ? 1 : 0}`, (err2) => {
-        if (err2) {
-          // Fallback: Try wayland/wlr-randr or similar if needed, 
-          // but for now we'll just log and rely on the web overlay.
-          console.log('[power] Hardware display control not available or failed.');
-        }
-      });
-    }
+  const strat = await getDisplayStrategy();
+  let cmd = null;
+  if (strat.kind === 'wlr-randr') {
+    cmd = `wlr-randr --output ${strat.output} ${on ? '--on' : '--off'}`;
+  } else if (strat.kind === 'xset') {
+    cmd = `xset dpms force ${on ? 'on' : 'off'}`;
+  } else if (strat.kind === 'vcgencmd') {
+    cmd = `vcgencmd display_power ${on ? 1 : 0}`;
+  } else {
+    console.log('[power] No hardware display control available; relying on web overlay.');
+    return;
+  }
+  exec(cmd, { env: sessionEnv() }, (err, _stdout, stderr) => {
+    if (err) console.warn(`[power] ${cmd} failed: ${(stderr || err.message).trim()}`);
   });
 }
 

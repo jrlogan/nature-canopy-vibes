@@ -401,6 +401,11 @@ function setup() {
   colorMode(RGB, 255, 255, 255, 255);
   textFont('monospace');
   pixelDensity(1);
+  // Ambient scene; 30 fps is indistinguishable from 60 to viewers and frees
+  // ~half the CPU/GPU budget on Pi-class hardware. Subsystems use _ncvAnimDt
+  // (set in draw()) to keep motion speed wall-clock-consistent at any frame
+  // rate, so this cap doesn't slow animations down.
+  frameRate(30);
 
   starField    = new StarField();
   murmuration  = new MurmurationSystem();
@@ -424,16 +429,31 @@ function setup() {
 //   → then all rendering in visual layer order
 // ----------------------------------------------------------
 function draw() {
+  // Frame-rate-independent animation time.
+  //   _ncvAnimDt — this frame's elapsed time in "60-fps-frames" units
+  //                (~1 at 60fps, ~2 at 30fps). Subsystems multiply every
+  //                per-frame delta (position +=, timer --, phase accumulator)
+  //                by this so the cap in setup() doesn't change motion speed.
+  //   _ncvAnimT  — monotonic pseudo-frame counter. Use as the phase argument
+  //                for sin()/noise() in place of p5's `frameCount`.
+  const _dtMs = (typeof deltaTime === 'number' && deltaTime > 0) ? deltaTime : (1000 / 60);
+  // Clamp dt: long stalls (tab backgrounded, GC pause) shouldn't cause one
+  // frame to advance animation by seconds.
+  window._ncvAnimDt = Math.min(_dtMs / (1000 / 60), 4);
+  window._ncvAnimT  = (window._ncvAnimT || 0) + window._ncvAnimDt;
+
   const fpsNow = frameRate();
-  perfState.smoothFps = lerp(perfState.smoothFps, Number.isFinite(fpsNow) ? fpsNow : 60, 0.08);
+  perfState.smoothFps = lerp(perfState.smoothFps, Number.isFinite(fpsNow) ? fpsNow : 30, 0.08);
   if (env.performanceMode === 'auto') {
-    if (perfState.smoothFps < 24) perfState.qualityScale = max(0.52, perfState.qualityScale - 0.05);
-    else if (perfState.smoothFps > 45) perfState.qualityScale = min(1.0, perfState.qualityScale + 0.02);
+    // Targets reference the 30-fps cap set in setup(): drop when we miss the
+    // cap by more than ~3 fps, recover once we sit comfortably near it.
+    if (perfState.smoothFps < 26) perfState.qualityScale = max(0.52, perfState.qualityScale - 0.05);
+    else if (perfState.smoothFps > 29) perfState.qualityScale = min(1.0, perfState.qualityScale + 0.02);
   } else {
     perfState.qualityScale = 1;
   }
   window._ncvQualityScale = perfState.qualityScale;
-  window._ncvIsStruggling = perfState.qualityScale < 0.82 || perfState.smoothFps < 30;
+  window._ncvIsStruggling = perfState.qualityScale < 0.82 || perfState.smoothFps < 25;
 
   background(skyColor());
   starField.updateCache();

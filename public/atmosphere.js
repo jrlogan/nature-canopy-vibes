@@ -58,9 +58,10 @@ class AtmosphereSystem {
     const wind = env.windSpeed || 0;
     const weatherBoost = env.currentWeather === 'storm' ? 1.45 : (env.currentWeather === 'rain' ? 1.15 : 1.0);
 
+    const dt = window._ncvAnimDt;
     for (const c of this.clouds) {
-      c.x += (0.05 + wind * c.drift) * weatherBoost;
-      c.y += (c.driftY ?? 0) * weatherBoost * 0.5 + sin((frameCount * 0.002) + c.seed) * 0.06;
+      c.x += (0.05 + wind * c.drift) * weatherBoost * dt;
+      c.y += ((c.driftY ?? 0) * weatherBoost * 0.5) * dt + sin((window._ncvAnimT * 0.002) + c.seed) * 0.06;
       if (c.x > width  + c.size * 0.8) c.x = -c.size * 1.2;
       if (c.x < -c.size * 1.2)         c.x = width  + c.size * 0.8;
       if (c.y > height + c.size * 0.8) c.y = -c.size * 1.2;
@@ -98,28 +99,30 @@ class AtmosphereSystem {
       this.aurora.nextCheckAt = now + random(14000, 36000);
     }
 
+    const dt = window._ncvAnimDt;
     const speed = this.aurora.target > this.aurora.alpha ? 0.8 : 0.45;
-    this.aurora.alpha = lerp(this.aurora.alpha, this.aurora.target, speed * 0.035);
-    this.aurora.hueShift += 0.003 + (env.windSpeed ?? 0.2) * 0.004;
+    this.aurora.alpha = lerp(this.aurora.alpha, this.aurora.target, speed * 0.035 * dt);
+    this.aurora.hueShift += (0.003 + (env.windSpeed ?? 0.2) * 0.004) * dt;
   }
 
   _updateLightning() {
     const now = millis();
     const manualActive = now < this.manualFlashUntil;
+    const dt = window._ncvAnimDt;
 
     if (env.currentWeather !== 'storm' && !manualActive) {
-      this.flashAlpha         = max(0, this.flashAlpha - 18);
-      this.distantFlashAlpha  = max(0, this.distantFlashAlpha - 6);
+      this.flashAlpha         = max(0, this.flashAlpha - 18 * dt);
+      this.distantFlashAlpha  = max(0, this.distantFlashAlpha - 6 * dt);
       this.lightningBolts     = [];
       this.pendingStrikes     = [];
       return;
     }
 
     if (env.currentWeather !== 'storm' && manualActive) {
-      this.flashAlpha        = max(0, this.flashAlpha - 22);
-      this.distantFlashAlpha = max(0, this.distantFlashAlpha - 5);
+      this.flashAlpha        = max(0, this.flashAlpha - 22 * dt);
+      this.distantFlashAlpha = max(0, this.distantFlashAlpha - 5 * dt);
       this.lightningBolts = this.lightningBolts.filter(b => {
-        b.alpha -= 30;
+        b.alpha -= 30 * dt;
         return b.alpha > 0;
       });
       return;
@@ -136,12 +139,12 @@ class AtmosphereSystem {
     }
 
     // Fade sky flash and distant glow.
-    this.flashAlpha        = max(0, this.flashAlpha        - 22);
-    this.distantFlashAlpha = max(0, this.distantFlashAlpha -  5);
+    this.flashAlpha        = max(0, this.flashAlpha        - 22 * dt);
+    this.distantFlashAlpha = max(0, this.distantFlashAlpha -  5 * dt);
 
     // Fade each bolt's alpha independently.
     this.lightningBolts = this.lightningBolts.filter(b => {
-      b.alpha -= 30;
+      b.alpha -= 30 * dt;
       return b.alpha > 0;
     });
   }
@@ -348,7 +351,7 @@ class AtmosphereSystem {
 
       beginShape();
       for (let x = -40; x <= width + 40; x += 24) {
-        const n = noise(x * 0.0022 + b * 0.71, frameCount * 0.0015 + phase);
+        const n = noise(x * 0.0022 + b * 0.71, window._ncvAnimT * 0.0015 + phase);
         const yy = y + (n - 0.5) * 2 * amp;
         vertex(x, yy);
       }
@@ -438,7 +441,7 @@ class AtmosphereSystem {
 
     const isStruggling = !!window._ncvIsStruggling;
     for (const c of this.clouds) {
-      const t = noise(c.seed, frameCount * 0.002);
+      const t = noise(c.seed, window._ncvAnimT * 0.002);
       const cloudDark = env.currentWeather === 'storm' ? 26 : (env.currentWeather === 'rain' ? 58 : 78);
       const cloudLight = env.currentWeather === 'storm' ? 72 : (env.currentWeather === 'rain' ? 120 : 140);
       const shade = lerp(cloudDark, cloudLight, t);
@@ -448,13 +451,13 @@ class AtmosphereSystem {
       let bandCount = Math.max(2, Math.floor(c.flowBands + c.puff * 0.22));
       if (isStruggling) bandCount = Math.max(1, Math.floor(bandCount * 0.6));
       
-      const flowA = c.flowAngle + Math.sin(frameCount * 0.00045 + c.seed) * 0.10;
+      const flowA = c.flowAngle + Math.sin(window._ncvAnimT * 0.00045 + c.seed) * 0.10;
       const flowLen = c.size * c.flowLen;
 
       for (let i = 0; i < bandCount; i++) {
         const bandT = bandCount === 1 ? 0.5 : (i / (bandCount - 1));
         const px = c.x + (bandT - 0.5) * c.size * 0.9 + Math.sin(c.seed + i * 1.7) * 10;
-        const py = c.y + Math.sin(c.seed * 0.8 + i * 0.9 + frameCount * 0.0012) * c.size * 0.10;
+        const py = c.y + Math.sin(c.seed * 0.8 + i * 0.9 + window._ncvAnimT * 0.0012) * c.size * 0.10;
         const coreThick = c.size * lerp(0.20, 0.34, noise(c.seed + i * 0.21));
         const wispThick = coreThick * (1.5 + c.wispSpread * 0.8);
 
@@ -471,7 +474,7 @@ class AtmosphereSystem {
           this._drawCloudRibbon(
             gWisp,
             px + Math.sin(c.seed + i * 0.8) * 8,
-            py + Math.cos(c.seed * 0.6 + i + frameCount * 0.001) * 5,
+            py + Math.cos(c.seed * 0.6 + i + window._ncvAnimT * 0.001) * 5,
             flowLen * (0.84 + c.wispSpread * 0.45),
             wispThick,
             flowA + (bandT - 0.5) * 0.26,
@@ -510,8 +513,8 @@ class AtmosphereSystem {
     for (let i = 0; i <= segments; i++) {
       const t = i / segments;
       const x0 = -half + t * len;
-      const flowBend = Math.sin(t * TWO_PI * 1.15 + seed * 0.003 + frameCount * 0.0011) * thick * 0.22;
-      const n = (noise(seed + t * 2.6, frameCount * 0.0018) - 0.5) * 2;
+      const flowBend = Math.sin(t * TWO_PI * 1.15 + seed * 0.003 + window._ncvAnimT * 0.0011) * thick * 0.22;
+      const n = (noise(seed + t * 2.6, window._ncvAnimT * 0.0018) - 0.5) * 2;
       const w = thick * (0.62 + Math.sin(t * PI) * 0.9) * (1 + n * jag);
       const px = cx + x0 * ca + flowBend * nx;
       const py = cy + x0 * sa + flowBend * ny;
@@ -532,7 +535,7 @@ class AtmosphereSystem {
     const pts = [];
     for (let i = 0; i < sides; i++) {
       const t = (i / sides) * TWO_PI;
-      const n = noise(seed + i * 0.23, frameCount * 0.002) * 2 - 1;
+      const n = noise(seed + i * 0.23, window._ncvAnimT * 0.002) * 2 - 1;
       const rmx = 1 + n * jag;
       const rmy = 1 + Math.sin(seed + i * 0.7) * jag * 0.65;
       pts.push([Math.cos(t) * rx * rmx, Math.sin(t) * ry * rmy]);

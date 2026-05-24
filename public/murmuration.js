@@ -42,8 +42,9 @@ class _MurmBoid {
   }
 
   step() {
-    this.vx += this.ax;
-    this.vy += this.ay;
+    const dt = window._ncvAnimDt;
+    this.vx += this.ax * dt;
+    this.vy += this.ay * dt;
     let spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
     if (spd > _MURM_MAX_SPEED) {
       const s = _MURM_MAX_SPEED / spd;
@@ -53,8 +54,8 @@ class _MurmBoid {
       const s = _MURM_MIN_SPEED / spd;
       this.vx *= s; this.vy *= s;
     }
-    this.x += this.vx;
-    this.y += this.vy;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
     this.ax = 0;
     this.ay = 0;
   }
@@ -113,24 +114,25 @@ class _MurmSwarm {
   }
 
   update() {
-    this.age++;
+    const dt = window._ncvAnimDt;
+    this.age += dt;
 
     // Drift attractor, softly pulled back toward screen centre.
-    this.atX += this.dAtX;
-    this.atY += this.dAtY;
-    this.dAtX += (width  * 0.5 - this.atX) * 0.00015;
-    this.dAtY += (height * 0.5 - this.atY) * 0.00015;
+    this.atX += this.dAtX * dt;
+    this.atY += this.dAtY * dt;
+    this.dAtX += (width  * 0.5 - this.atX) * 0.00015 * dt;
+    this.dAtY += (height * 0.5 - this.atY) * 0.00015 * dt;
 
     // Predator events.
     if (this.pred) {
-      this.pred.x += this.pred.vx;
-      this.pred.y += this.pred.vy;
+      this.pred.x += this.pred.vx * dt;
+      this.pred.y += this.pred.vy * dt;
       if (this.pred.x < -120 || this.pred.x > width  + 120 ||
           this.pred.y < -120 || this.pred.y > height + 120) {
         this.pred = null;
       }
     } else {
-      this.predTimer--;
+      this.predTimer -= dt;
       if (this.predTimer <= 0 && this.age < this.lifetime) {
         this._spawnPredator();
         this.predTimer = Math.floor(random(350, 850));
@@ -138,7 +140,7 @@ class _MurmSwarm {
     }
 
     // Wave pulse.
-    this.pulseTimer--;
+    this.pulseTimer -= dt;
     if (this.pulseTimer <= 0) {
       this._triggerPulse();
       this.pulseTimer = Math.floor(random(60, 180));
@@ -386,7 +388,7 @@ class MurmurationSystem {
     } else if (!isActive && this.swarms.length > 0) {
       // Disperse active swarms quickly when night/storm/cloud build-up arrives or when struggling.
       const disperseStep = (clearOutForCloud || isStruggling) ? 9 : 5;
-      for (const s of this.swarms) s.age += disperseStep;
+      for (const s of this.swarms) s.age += disperseStep * window._ncvAnimDt;
       this.nextSpawn = now + random(22000, 52000);
     }
 
@@ -489,10 +491,11 @@ class GooseMigrationSystem {
       this.nextSpawn = now + random(26000, 70000);
     }
 
+    const dt = window._ncvAnimDt;
     for (const f of this.formations) {
-      f.age++;
-      f.x += f.speed * f.dir;
-      f.y += sin(frameCount * 0.008 + f.wobble) * 0.35;
+      f.age += dt;
+      f.x += f.speed * f.dir * dt;
+      f.y += sin(window._ncvAnimT * 0.008 + f.wobble) * 0.35;
     }
     this.formations = this.formations.filter((f) => {
       if (f.age > f.life) return false;
@@ -513,7 +516,7 @@ class GooseMigrationSystem {
       fill(isNight ? 26 : 34, isNight ? 20 : 30, isNight ? 36 : 26, a);
       for (const b of f.birds) {
         const dx = b.slot * f.wingGap * -f.dir;
-        const dy = b.side * b.slot * f.wingGap * 0.56 + Math.sin(frameCount * 0.03 + b.slot * 0.7 + f.wobble) * 2.2;
+        const dy = b.side * b.slot * f.wingGap * 0.56 + Math.sin(window._ncvAnimT * 0.03 + b.slot * 0.7 + f.wobble) * 2.2;
         const bx = f.x + dx;
         const by = f.y + dy + Math.sin(f.armAngle) * b.slot * 4;
         push();

@@ -109,9 +109,29 @@ Create `~/.config/autostart/nature-canopy-kiosk.desktop` for the desktop user:
 [Desktop Entry]
 Type=Application
 Name=Nature Canopy Kiosk
-Exec=sh -c "xset s off && xset -dpms && xset s noblank && chromium-browser --kiosk --incognito --noerrdialogs --disable-infobars http://localhost:3000/"
+Exec=sh -c "(command -v xset >/dev/null && xset s off && xset -dpms && xset s noblank); chromium --kiosk --incognito --noerrdialogs --disable-infobars --use-gl=egl --ignore-gpu-blocklist --enable-gpu-rasterization --enable-zero-copy --disable-features=UseChromeOSDirectVideoDecoder http://localhost:3000/"
 X-GNOME-Autostart-enabled=true
 ```
+
+GPU flags worth keeping (biggest single perf win on a Pi — Chromium otherwise tends to fall back to software compositing):
+
+- `--use-gl=egl` — use EGL/GLES on the Pi GPU instead of software rasterizer (swiftshader).
+- `--ignore-gpu-blocklist` — Chromium ships a blocklist that conservatively disables GPU on many ARM SoCs; override it.
+- `--enable-gpu-rasterization` — rasterize canvas/CSS layers on the GPU.
+- `--enable-zero-copy` — skip the CPU staging buffer for GPU texture uploads.
+
+Verify after first boot: open `chrome://gpu` once and confirm "Canvas: Hardware accelerated" and "Compositing: Hardware accelerated". If they say Software, double-check the flags landed.
+
+Notes for modern Raspberry Pi OS (Bookworm and later):
+
+- The binary is `chromium`, not `chromium-browser`.
+- The default session is Wayland; `xset` is X11-only and silently no-ops, which is fine (the `command -v` guard skips it). Screen blanking on Wayland is controlled by the compositor — under labwc/wlroots, install `wlr-randr` so the server can blank the display from motion events:
+
+  ```bash
+  sudo apt install wlr-randr
+  ```
+
+  The server probes for `wlr-randr` → `xset` → `vcgencmd` in that order on first sleep/wake.
 
 ### 3) Set desktop auto-login
 

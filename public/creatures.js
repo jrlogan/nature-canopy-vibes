@@ -112,16 +112,17 @@ class Bird {
   // Update
   // ----------------------------------------------------------
   update() {
+    const dt = window._ncvAnimDt;
     switch (this.state) {
-      case 'FLYING':  this._updateFlight();  break;
-      case 'PERCHED': this._updatePerched(); break;
-      case 'LEAVING': this._updateLeaving(); break;
+      case 'FLYING':  this._updateFlight(dt);  break;
+      case 'PERCHED': this._updatePerched(dt); break;
+      case 'LEAVING': this._updateLeaving(dt); break;
     }
-    this.flapPhase += this.flapRate;
+    this.flapPhase += this.flapRate * dt;
   }
 
-  _updateFlight() {
-    this.flightT = min(1, this.flightT + this.flightSpeed);
+  _updateFlight(dt) {
+    this.flightT = min(1, this.flightT + this.flightSpeed * dt);
     const t  = this.flightT;
     const fx = this.flightFrom.x,   fy = this.flightFrom.y;
     const tx = this.flightTarget.x, ty = this.flightTarget.y;
@@ -138,7 +139,7 @@ class Bird {
     if (this.flightT >= 1) this._land(this.flightTarget);
   }
 
-  _updatePerched() {
+  _updatePerched(dt) {
     // Follow the branch as it sways — recalculate exact bezier position from
     // the branch node (updated every frame by canopy._updateNode) and our t value.
     if (this.perchNode) {
@@ -155,15 +156,15 @@ class Bird {
     }
 
     // Occasional head bob
-    this.headBobTimer--;
+    this.headBobTimer -= dt;
     if (this.headBobTimer <= 0) {
       this.headBobTimer = floor(random(80, 300));
       this.headBobPhase = TWO_PI; // triggers one bob cycle
     }
-    if (this.headBobPhase > 0) this.headBobPhase = max(0, this.headBobPhase - 0.18);
+    if (this.headBobPhase > 0) this.headBobPhase = max(0, this.headBobPhase - 0.18 * dt);
 
     // Countdown to next action
-    this.perchTimer--;
+    this.perchTimer -= dt;
     if (this.perchTimer <= 0) {
       if (random() < 0.22) {
         this._scatter();                // 22 %: fly away on its own
@@ -173,12 +174,14 @@ class Bird {
     }
   }
 
-  _updateLeaving() {
-    this.x += this.vel.x;
-    this.y += this.vel.y;
-    // Light air resistance
-    this.vel.x *= 0.985;
-    this.vel.y *= 0.985;
+  _updateLeaving(dt) {
+    this.x += this.vel.x * dt;
+    this.y += this.vel.y * dt;
+    // Light air resistance — applied per 60-fps frame; raise to the dt power
+    // so total damping per wall-clock second is identical at any frame rate.
+    const damp = Math.pow(0.985, dt);
+    this.vel.x *= damp;
+    this.vel.y *= damp;
     if (this.x < -140 || this.x > width  + 140 ||
         this.y < -140 || this.y > height + 140) {
       this.shouldRemove = true;
@@ -301,15 +304,17 @@ class Bat {
   }
 
   update() {
+    const dt = window._ncvAnimDt;
+    const aniT = window._ncvAnimT;
     if (this.mode === 'commute_lead') {
       // Fast, low commute line at dusk/dawn with synchronized swoop.
-      const n = noise(this.pos.x * 0.0018, this.pos.y * 0.0018, frameCount * this.noiseSpd + this.noiseOff);
+      const n = noise(this.pos.x * 0.0018, this.pos.y * 0.0018, aniT * this.noiseSpd + this.noiseOff);
       const angle = (n - 0.5) * 0.65;
-      this.vel.add(p5.Vector.fromAngle(angle).mult(0.08)).limit(6.0);
-      this.pos.add(this.vel);
-      this.pos.y += sin(frameCount * this.swoopRate + this.phaseJit) * 0.7;
-      this.flapPhase += 0.34;
-      this.life--;
+      this.vel.add(p5.Vector.fromAngle(angle).mult(0.08 * dt)).limit(6.0);
+      this.pos.add(p5.Vector.mult(this.vel, dt));
+      this.pos.y += sin(aniT * this.swoopRate + this.phaseJit) * 0.7;
+      this.flapPhase += 0.34 * dt;
+      this.life -= dt;
       if (this.life <= this.disperseAt) {
         this.mode = 'hunt_pass';
         this.vel.limit(4.8);
@@ -326,12 +331,12 @@ class Bat {
       // Tight group cohesion around the commute leader.
       const desired = p5.Vector.add(this.leader.pos, this.offset);
       const to = p5.Vector.sub(desired, this.pos);
-      this.vel.add(to.mult(0.07));
+      this.vel.add(to.mult(0.07 * dt));
       this.vel.limit(6.2);
-      this.pos.add(this.vel);
-      this.pos.y += sin(frameCount * this.swoopRate + this.phaseJit) * 0.55;
-      this.flapPhase += 0.36;
-      this.life--;
+      this.pos.add(p5.Vector.mult(this.vel, dt));
+      this.pos.y += sin(aniT * this.swoopRate + this.phaseJit) * 0.55;
+      this.flapPhase += 0.36 * dt;
+      this.life -= dt;
       if (this.life <= this.disperseAt) {
         this.mode = 'hunt_pass';
         this.leader = null;
@@ -346,9 +351,9 @@ class Bat {
     }
 
     if (this.mode === 'exit') {
-      this.pos.add(this.vel);
-      this.flapPhase += 0.40;
-      this.life--;
+      this.pos.add(p5.Vector.mult(this.vel, dt));
+      this.flapPhase += 0.40 * dt;
+      this.life -= dt;
       if (this.life <= 0 ||
           this.pos.x < -170 || this.pos.x > width + 170 ||
           this.pos.y < -170 || this.pos.y > height + 170) {
@@ -372,11 +377,11 @@ class Bat {
       const to = p5.Vector.sub(tgt, this.pos);
       const d = to.mag();
       if (d > 0.001) {
-        to.normalize().mult(0.58);
+        to.normalize().mult(0.58 * dt);
         this.vel.add(to).limit(7.4);
       }
-      this.pos.add(this.vel);
-      this.pos.y += sin(frameCount * this.swoopRate + this.phaseJit) * 0.6;
+      this.pos.add(p5.Vector.mult(this.vel, dt));
+      this.pos.y += sin(aniT * this.swoopRate + this.phaseJit) * 0.6;
       if (this.pos.y < height * 0.34) this.pos.y = lerp(this.pos.y, height * 0.40, 0.10);
       if (this.pos.y > height * 0.86) this.pos.y = lerp(this.pos.y, height * 0.78, 0.16);
       if (d < 42) {
@@ -384,12 +389,12 @@ class Bat {
         this.huntTarget = pickHuntTarget();
       }
     } else {
-      const angle = noise(this.pos.x * 0.0028, this.pos.y * 0.0028, frameCount * this.noiseSpd + this.noiseOff) * TWO_PI * 2;
-      this.vel.add(p5.Vector.fromAngle(angle).mult(0.14)).limit(6.5);
-      this.pos.add(this.vel);
+      const angle = noise(this.pos.x * 0.0028, this.pos.y * 0.0028, aniT * this.noiseSpd + this.noiseOff) * TWO_PI * 2;
+      this.vel.add(p5.Vector.fromAngle(angle).mult(0.14 * dt)).limit(6.5);
+      this.pos.add(p5.Vector.mult(this.vel, dt));
     }
-    this.flapPhase += 0.38;
-    this.life--;
+    this.flapPhase += 0.38 * dt;
+    this.life -= dt;
     if (this.huntHops <= 0 || this.life <= 0) {
       const cx = width / 2;
       const cy = height / 2;
@@ -413,7 +418,7 @@ class Bat {
     push();
     translate(this.pos.x, this.pos.y);
     // Keep bats in underside view (looking up): avoid side-profile heading rotation.
-    rotate(sin(frameCount * 0.011 + this.noiseOff) * 0.14);
+    rotate(sin(window._ncvAnimT * 0.011 + this.noiseOff) * 0.14);
     fill(20, 0, 30, alpha);
     _drawBatWings(this.size, flap);
     pop();
@@ -454,8 +459,9 @@ class CreatureFlock {
     const clearOutForCloud = cloudCover >= 0.56;      // force departure before dense overcast
     const isStruggling = !!window._ncvIsStruggling;
 
+    const dt = window._ncvAnimDt;
     // --- Flock-in event ---
-    this.flockInTimer--;
+    this.flockInTimer -= dt;
     if (this.flockInTimer <= 0) {
       if (!isNight && !isStorm && !blockFlocksForCloud && !isStruggling && !activeFlock && canopy && canopy.perchNodes.length > 0) {
         this._triggerFlockIn();
@@ -465,7 +471,7 @@ class CreatureFlock {
     }
 
     // --- Spook event ---
-    this.spookTimer--;
+    this.spookTimer -= dt;
     if (this.spookTimer <= 0) {
       if (!isNight && perched >= 2) {
         this._triggerSpook();
@@ -503,7 +509,7 @@ class CreatureFlock {
       if (idx >= 0) this.bats.splice(idx, 1);
     }
 
-    this.batGroupTimer--;
+    this.batGroupTimer -= dt;
     const hasCommuteGroup = this.bats.some(b => b.mode === 'commute_lead' || b.mode === 'commute_follow');
     if ((isDusk || isDawn) && this.batGroupTimer <= 0 && !isStruggling) {
       if (!hasCommuteGroup) this._spawnBatCommuteGroup(isDawn ? 'inbound' : 'outbound');
