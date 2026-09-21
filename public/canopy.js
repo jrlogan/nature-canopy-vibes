@@ -1241,25 +1241,17 @@ class Canopy {
       this.perchNodes = [];
       return;
     }
-    // Runtime length multiplier — lets sky-open and branch-reach sliders
-    // adjust tree geometry without a rebuild:
-    //   Sky open ↑  → openScale  < 1 → trees recede toward edges (shorter, center opens up)
-    //   Branch reach ↑ → reachScale > 1 → trees extend further inward
+    // Match the reach factor used when constructing branches so rebuilding
+    // at the same settings does not reset their effective length.
     const bp         = this._builtParams ?? {};
-    const builtOpen  = bp.treeSkyOpen  ?? this._treeSkyOpen();
     const builtReach = bp.treeBranchReach ?? this._treeBranchReach();
-    const openDelta  = this._treeSkyOpen()     - builtOpen;
-    const reachDelta = this._treeBranchReach() - builtReach;
-    // openDelta > 0: slider moved right (more sky) → trees shorter (recede toward edges)
-    // openDelta < 0: slider moved left (less sky) → trees longer (advance into centre)
     const skyOpenNow = this._treeSkyOpen();
-    const openScale  = Math.max(0.18, Math.min(2.0, 1.0 - openDelta * 2.4));
-    // Absolute sky-open influence (independent of build baseline) so the
-    // opening is controlled by branch reach geometry, not per-leaf masking.
     const openNorm   = constrain((skyOpenNow - 1.0) / 0.5, 0, 1);
-    const openAbsMul = lerp(1.0, 0.62, openNorm);
-    const reachScale = Math.max(0.22, Math.min(2.4, 1.0 + reachDelta * 2.0));
-    this._runtimeLenMul = Math.max(0.14, openScale * openAbsMul * reachScale);
+    // Pull the connected branch network back about 12% to preserve open sky.
+    // Leaves stay attached and the independently drawn lush edge remains full.
+    const openAbsMul = lerp(0.88, 0.55, openNorm);
+    const reachScale = lerp(0.65, 1.15, this._treeBranchReach()) / lerp(0.65, 1.15, builtReach);
+    this._runtimeLenMul = openAbsMul * reachScale;
 
     const windNow = constrain(env.windSpeed ?? 0.22, 0, 1);
     // A canopy should breathe rather than wave continuously in ordinary
