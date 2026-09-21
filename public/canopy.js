@@ -32,6 +32,7 @@ class Canopy {
     this._bgLeafData  = [];   // pre-baked background leaf clusters (static, edge-anchored)
     this._bgLeafBuf   = null; // cached blurred edge foliage layer
     this._bgLeafKey   = '';   // cache key for edge foliage appearance
+    this._motionTime = 0;
     this._gust = {
       active: false,
       dir: 1,
@@ -79,7 +80,7 @@ class Canopy {
     //  - mild temperate: mostly evergreen with modest seasonal dip
     //  - cold temperate/boreal: strong leaf-off winter
     if (absLat <= 24) {
-      return { key: 'tropical', leafK: 1.0, absLat };
+      return { key: 'tropical', leafK: 1.0, springK: 1.0, fallK: 0.0, absLat };
     }
 
     let springStart, springFull, fallStart, fallBare;
@@ -91,8 +92,11 @@ class Canopy {
     } else if (absLat < 50) {
       springStart = 56 + absLat * 0.75;
       springFull  = springStart + 46;
-      fallStart   = 246 + absLat * 0.20;
-      fallBare    = fallStart + 52;
+      // Southern New England is generally still predominantly green at the
+      // equinox. Colour begins near the end of September and builds through
+      // October; higher temperate latitudes turn progressively earlier.
+      fallStart   = 274 - (absLat - 40) * 1.70;
+      fallBare    = fallStart + 55;
     } else {
       springStart = 56 + absLat * 0.95;   // Seattle/Anchorage-like delay
       springFull  = springStart + (62 - absLat * 0.32);
@@ -115,7 +119,7 @@ class Canopy {
     else if (doyN >= fallStart && leafK < 0.98) key = 'fall';
     else key = 'summer';
 
-    return { key, leafK, absLat };
+    return { key, leafK, springK, fallK, absLat };
   }
   _seasonKey() {
     const s = (env.season || 'auto').toLowerCase();
@@ -138,7 +142,20 @@ class Canopy {
       return { key: 'spring', leafAmount: 0.78, leafSize: 0.78, edgeAmount: 0.70, cR: 0.96, cG: 1.08, cB: 0.88, edgeTone: 'spring' };
     }
     if (k === 'fall') {
-      return { key: 'fall', leafAmount: 0.68, leafSize: 0.92, edgeAmount: 0.76, cR: 1.18, cG: 0.82, cB: 0.54, edgeTone: 'fall' };
+      const progress = autoState ? constrain(autoState.fallK, 0, 1) : 0.62;
+      return {
+        key: 'fall',
+        fallProgress: progress,
+        leafAmount: lerp(1.0, 0.38, progress),
+        leafSize: lerp(1.0, 0.82, progress),
+        edgeAmount: lerp(1.0, 0.48, progress),
+        // Individual deciduous clumps supply the varied autumn colours below;
+        // keep the shared base near green so unturned leaves and conifers stay green.
+        cR: lerp(0.90, 1.04, progress),
+        cG: lerp(1.08, 0.92, progress),
+        cB: lerp(0.88, 0.70, progress),
+        edgeTone: 'fall',
+      };
     }
     if (k === 'late_summer') {
       return { key: 'late_summer', leafAmount: 1.0, leafSize: 1.0, edgeAmount: 1.0, cR: 0.86, cG: 1.14, cB: 0.82, edgeTone: 'late_summer' };
@@ -178,8 +195,11 @@ class Canopy {
     else if (lat <= 18) { conifer = 0.05; birch = 0.04; dead = 0.02; palm = 0.44; }
     else if (lat <= 24) { conifer = 0.07; birch = 0.06; dead = 0.03; palm = 0.24; }
     if (name.includes('north pole')) { conifer = 0.0; birch = 0.0; dead = 0.0; palm = 0.0; }
-    if (name.includes('anchorage') || name.includes('tromso') || name.includes('reykjavik')) conifer += 0.12;
-    if (name.includes('new haven') || name.includes('new york') || name.includes('tokyo') || name.includes('lisbon')) conifer += 0.06;
+    // Art-directed regional mixes supplement the latitude fallback.
+    if (/new haven|new york|sarnia/.test(name)) { conifer = 0.22; birch = 0.14; dead = 0.04; }
+    if (/anchorage/.test(name)) { conifer = 0.70; birch = 0.22; dead = 0.04; }
+    if (/honolulu/.test(name)) { conifer = 0.02; birch = 0; dead = 0.02; palm = 0.54; }
+    if (/lisbon/.test(name)) { conifer = 0.34; birch = 0; dead = 0.04; }
     if (name.includes('lisbon') || name.includes('los angeles') || name.includes('lima')) dead += 0.04;
     const seasonK = this._seasonKey();
     if (seasonK === 'winter') dead += 0.08;
@@ -201,14 +221,22 @@ class Canopy {
     else if (r < mix.dead + mix.conifer + mix.birch) type = 'birch';
     else if (r < mix.dead + mix.conifer + mix.birch + mix.palm) type = 'palm';
     const forceType = String(env.forceTreeType || '').toLowerCase();
+    const boreal = Math.abs(Number(env.liveLocationLat) || 0) >= 55;
     const coniferForm = type === 'conifer'
       ? (forceType === 'conifer'
         ? (Math.random() < 0.985 ? 'pine' : 'spruce')
-        : (Math.random() < 0.95 ? 'pine' : 'spruce'))
+        : (Math.random() < (boreal ? 0.25 : 0.95) ? 'pine' : 'spruce'))
       : '';
+    const broadleafName = Math.abs(Number(env.liveLocationLat) || 0) < 30
+      ? 'Tropical broadleaf' : /lisbon/i.test(env.liveLocationName || '')
+        ? 'Oak' : random(['Oak', 'Maple', 'Beech']);
+    const plantName = type === 'conifer' ? (coniferForm === 'pine' ? 'Pine' : 'Spruce')
+      : type === 'birch' ? 'Birch' : type === 'palm' ? 'Palm'
+        : type === 'dead' ? 'Snag' : broadleafName;
     return {
       treeId,
       type,
+      plantName,
       coniferForm,
       heightMul: type === 'palm'
         ? random(1.24, 1.52)
@@ -254,7 +282,7 @@ class Canopy {
       const style = this._pickTreeStyle(cfg.treeId);
       this._treeStyles[cfg.treeId] = style;
       const lenMult   = lerp(0.65, 1.15, reach) * cfg.layerLen;
-      const len       = h * 0.25 * lenMult * (style.heightMul ?? 1);
+      const len       = min(h, w) * 0.25 * lenMult * (style.heightMul ?? 1);
       const edgeBoost = 1 + constrain(env.canopyEdgeLushness ?? 1.0, 0, 1.5) * cfg.edgeAffinity * 1.35;
       const root      = this._makeNode(cfg.a, len, this._maxDepth, edgeBoost, {
         treeId: cfg.treeId,
@@ -264,7 +292,7 @@ class Canopy {
         fanSpan: cfg.fanSpan,
         splitBias: cfg.splitBias,
       });
-      root.plantName = random(this._plantNames);
+      root.plantName = style.plantName;
       root.originX    = cfg.x;
       root.originY    = cfg.y;
       // Hero trees (trunkLevel >= 2) get an early shoulder for richer structure.
@@ -393,7 +421,7 @@ class Canopy {
     const style = this._pickTreeStyle(cfg.treeId);
     this._treeStyles[cfg.treeId] = style;
 
-    const len       = height * 0.25 * lerp(0.65, 1.15, reach) * cfg.layerLen * (style.heightMul ?? 1);
+    const len       = min(width, height) * 0.25 * lerp(0.65, 1.15, reach) * cfg.layerLen * (style.heightMul ?? 1);
     const edgeBoost = 1 + constrain(env.canopyEdgeLushness ?? 1.0, 0, 1.5) * cfg.edgeAffinity * 1.35;
 
     const root = this._makeNode(cfg.a, len, this._maxDepth, edgeBoost, {
@@ -401,7 +429,7 @@ class Canopy {
       meanderBase: cfg.meanderBase, fanCenter: cfg.fanCenter,
       fanSpan: cfg.fanSpan, splitBias: cfg.splitBias,
     });
-    root.plantName = random(this._plantNames);
+    root.plantName = style.plantName;
     root.originX = cfg.x;
     root.originY = cfg.y;
     if (style.type === 'palm') this._populatePalm(root, style);
@@ -634,7 +662,7 @@ class Canopy {
     for (let i = 0; i < count; i++) {
       // Smaller clumps so foliage reads as finer units.
       const baseSz = (22 + Math.random() * 34) * map(depth, MD, 0, 0.40, 1.36);
-      const sz = baseSz * (0.82 + densityK * 0.86); // smoother size progression
+      const sz = baseSz * (0.82 + densityK * 0.86) * constrain(min(width, height) / 800, 0.45, 1);
 
       // Anchor most clumps toward branch tips and joints (more realistic crown build-up).
       const isJoint = Math.random() < 0.34;
@@ -1233,7 +1261,12 @@ class Canopy {
     const reachScale = Math.max(0.22, Math.min(2.4, 1.0 + reachDelta * 2.0));
     this._runtimeLenMul = Math.max(0.14, openScale * openAbsMul * reachScale);
 
-    const t = window._ncvAnimT * (0.0018 + env.windSpeed * 0.004);
+    const windNow = constrain(env.windSpeed ?? 0.22, 0, 1);
+    // A canopy should breathe rather than wave continuously in ordinary
+    // weather. Wind increases both speed and travel, but the calm baseline is
+    // deliberately slow for an ambient scene.
+    this._motionTime += (window._ncvAnimDt || 1) * (0.0009 + windNow * 0.0022);
+    const t = this._motionTime;
     this._updateGust();
     this.perchNodes = [];
     for (const root of this.trees) {
@@ -1251,8 +1284,8 @@ class Canopy {
           g.active = true;
           g.dir = Math.random() < 0.5 ? -1 : 1;
           g.progress = 0;
-          g.speed = random(0.0045, 0.0105);
-          g.amp = random(0.10, 0.24) * (0.7 + wind * 0.9) * stormBoost;
+          g.speed = random(0.0032, 0.0072);
+          g.amp = random(0.055, 0.14) * (0.65 + wind * 0.9) * stormBoost;
           g.width = random(width * 0.16, width * 0.34);
         }
         return;
@@ -1293,8 +1326,9 @@ class Canopy {
       stiffness = constrain(stiffness * 1.34, 0.12, 1.0);
     }
     const flexK = constrain((1.02 - stiffness) * depthFlexK, 0.14, 1.55);
-    const windAmp = (env.windSpeed * 0.28 +
-                    (env.currentWeather === 'storm' ? env.windSpeed * 0.22 : 0))
+    const wind = constrain(env.windSpeed ?? 0.22, 0, 1);
+    const windAmp = (wind * 0.13 +
+                    (env.currentWeather === 'storm' ? wind * 0.24 : 0))
                     * depthFactor * flexK;
     const sway  = (noise(node.noisePhase * 0.28, t) - 0.5) * 2 * windAmp;
     const gust = this._gustStrengthAtX(sx) * depthFactor * lerp(0.45, 1.12, flexK);
@@ -1302,15 +1336,17 @@ class Canopy {
     const droop = node.dropFactor * (this._maxDepth - node.depth) * 0.055;
 
     const meander = Math.sin(t * (0.65 + node.meanderBase * 4.0) + node.noisePhase * 0.17)
-      * node.meanderBase * (1 + (this._maxDepth - node.depth) * 0.08);
+      * node.meanderBase * 0.45 * (1 + (this._maxDepth - node.depth) * 0.08);
     node.currentAngle = node.baseAngle + node.angleJitter + sway + gustSway + droop + meander;
 
     // Runtime chaos motion — strong live response on outer non-trunk branches.
     const chaosNow = this._treeBranchChaos();
     if (node.depth <= 3 && node.trunkLevel === 0) {
       const depthK = map(node.depth, 3, 0, 1.15, 0.55);
-      const chaosBase = (noise(node.noisePhase * 0.65 + 1800, t * 0.10) - 0.5) * chaosNow * 2.5 * depthK;
-      const chaosWave = Math.sin(t * (1.8 + chaosNow * 2.4) + node.noisePhase * 0.11) * chaosNow * 0.35 * depthK;
+      // Branch chaos primarily shapes the tree; it should add only a trace of
+      // restless tip motion, not swing the crown through large angles.
+      const chaosBase = (noise(node.noisePhase * 0.65 + 1800, t * 0.08) - 0.5) * chaosNow * 0.30 * depthK;
+      const chaosWave = Math.sin(t * (1.25 + chaosNow * 1.4) + node.noisePhase * 0.11) * chaosNow * 0.055 * depthK;
       node.currentAngle += chaosBase + chaosWave;
     }
 
@@ -1644,13 +1680,16 @@ class Canopy {
 
           // Seasonal tint is intentionally subtle so edge mostly matches tree leaves.
           if (season.edgeTone === 'fall') {
-            const warmT = constrain((Math.sin((lf.x * 0.013 + lf.y * 0.011 + lf.rot * 2.1)) + 1) * 0.5, 0, 1);
-            const fr = lerp(164, 216, warmT);
-            const fg = lerp(66, 146, warmT);
-            const fb = lerp(16, 44, warmT);
-            r = lerp(r, fr, 0.34);
-            g = lerp(g, fg, 0.34);
-            b = lerp(b, fb, 0.30);
+            const p = constrain(season.fallProgress ?? 0.62, 0, 1);
+            const variation = (Math.sin(lf.x * 0.013 + lf.y * 0.011 + lf.rot * 2.1) + 1) * 0.5;
+            const turned = this._smoothstep(variation * 0.82 - 0.12, variation * 0.82 + 0.22, p);
+            const palette = variation < 0.22 ? [132, 42, 24]
+              : (variation < 0.46 ? [190, 72, 24]
+                : (variation < 0.74 ? [218, 154, 32] : [112, 72, 38]));
+            const mix = turned * 0.66;
+            r = lerp(r, palette[0], mix);
+            g = lerp(g, palette[1], mix);
+            b = lerp(b, palette[2], mix);
           } else if (season.edgeTone === 'spring') {
             r = lerp(r, 170, 0.08);
             g = lerp(g, 210, 0.12);
@@ -1847,7 +1886,8 @@ class Canopy {
 
     // Dynamic resolution based on quality scale — 70% down to 35%
     // Even more aggressive if struggling.
-    const resScale = 0.70 * q * (isStruggling ? 0.65 : 1.0);
+    const mobileScale = window.matchMedia('(pointer: coarse)').matches && min(width, height) < 600 ? 0.82 : 1;
+    const resScale = 0.70 * q * (isStruggling ? 0.65 : 1.0) * mobileScale;
     const bufW = Math.floor(width  * resScale);
     const bufH = Math.floor(height * resScale);
 
@@ -1997,6 +2037,10 @@ class Canopy {
       // Cached curve sag point for correct leaf anchoring.
       const sagX = node.sagX;
       const sagY = node.sagY;
+      const leafWind = constrain(env.windSpeed ?? 0.22, 0, 1);
+      const stormLeafK = env.currentWeather === 'storm' ? 1.45 : 1.0;
+      const leafMotionK = (0.28 + leafWind * 0.72) * stormLeafK;
+      const leafSpeedK = 0.52 + leafWind * 0.48;
 
       for (let i = 0; i < node.leaves.length; i += step) {
         const lf = node.leaves[i];
@@ -2018,8 +2062,8 @@ class Canopy {
         const perpReach = lf.perpOff * (1 + lf.lobeMix * 0.20) * spreadMul;
         const px = lx + cosPa * perpReach;
         const py = ly + sinPa * perpReach;
-        const sx = Math.sin(ft * lf.swaySpd       + lf.phase) * lf.swayAmt;
-        const sy = Math.sin(ft * lf.swaySpd * 0.7 + lf.phase + 1.1) * lf.swayAmt * 0.35;
+        const sx = Math.sin(ft * lf.swaySpd * leafSpeedK + lf.phase) * lf.swayAmt * leafMotionK;
+        const sy = Math.sin(ft * lf.swaySpd * 0.7 * leafSpeedK + lf.phase + 1.1) * lf.swayAmt * 0.35 * leafMotionK;
         let bx = 0, by = 0;
         if (hasOcc) {
           for (const o of occluders) {
@@ -2048,19 +2092,34 @@ class Canopy {
           la = (ba - lf.ca) * escA;
         }
 
-        // Fall palette: stable per-clump warm mix (amber/orange/rust).
-        if (season.key === 'fall' && !isNight) {
-          const warmT = constrain(0.25 + ((Math.sin((lf.seed ?? 0) * 0.0017) + 1) * 0.5) * 0.75, 0, 1);
-          const wr = lerp(170, 212, warmT);
-          const wg = lerp(72, 142, warmT);
-          const wb = lerp(18, 42, warmT);
-          const mix = isTwilight ? 0.45 : 0.70;
-          lr = lerp(lr, wr, mix);
-          lg = lerp(lg, wg, mix);
-          lb = lerp(lb, wb, mix * 0.95);
+        // Deciduous clumps turn at different times and into different colours,
+        // leaving a believable mix of green, yellow, orange, red and brown.
+        if (season.key === 'fall' && !isNight && tStyle.type !== 'conifer' && tStyle.type !== 'palm') {
+          const p = constrain(season.fallProgress ?? 0.62, 0, 1);
+          const seed = Number(lf.seed) || 0;
+          const treeSeed = Number(node.treeId) || 0;
+          const timing = (Math.sin(seed * 0.0017 + treeSeed * 2.31) + 1) * 0.5;
+          const turned = this._smoothstep(timing * 0.86 - 0.14, timing * 0.86 + 0.20, p);
+          const hue = (Math.sin(seed * 0.0031 + treeSeed * 4.17) + 1) * 0.5;
+          const palette = tStyle.type === 'birch' ? [214, 164, 42]
+            : tStyle.plantName === 'Oak' ? [128 + hue * 34, 65 + hue * 22, 32]
+            : tStyle.plantName === 'Maple' ? [176 + hue * 44, 40 + hue * 88, 26]
+            : (hue < 0.20 ? [132, 42, 26]
+              : (hue < 0.43 ? [190, 62, 25]
+                : (hue < 0.76 ? [222, 158, 34] : [112, 70, 38])));
+          const mix = turned * (isTwilight ? 0.54 : 0.78);
+          lr = lerp(lr, palette[0], mix);
+          lg = lerp(lg, palette[1], mix);
+          lb = lerp(lb, palette[2], mix);
         }
         if (tStyle.type === 'conifer') {
-          lr *= 0.74; lg *= 0.88; lb *= 0.72;
+          // Evergreen needles retain their blue/deep-green identity year-round.
+          if (!isNight) {
+            lr = lerp(lr, 28 + sun * 18, 0.78);
+            lg = lerp(lg, 68 + sun * 40, 0.82);
+            lb = lerp(lb, 24 + sun * 16, 0.78);
+          }
+          lr *= 0.82; lg *= 0.92; lb *= 0.84;
         } else if (tStyle.type === 'birch') {
           lr = lerp(lr, 152, 0.12);
           lg = lerp(lg, 170, 0.10);

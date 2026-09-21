@@ -12,10 +12,12 @@
 //   4. Copy "Project URL" and the "anon / public" key into the fields below
 //   5. Commit & push — that's it. No server needed.
 //
-// Leave both fields empty to run in same-device BroadcastChannel mode only.
+// Leave both fields empty to use the built-in WebRTC/BroadcastChannel fallback.
 // ============================================================
 
 window.NCV_CONFIG = {
-  supabaseUrl:     'https://vmecmvhyibysbxeudinc.supabase.co',
-  supabaseAnonKey: 'sb_publishable_nHq2Wce2O6LI3XIXr-c7Lg_wvagbEio',
+  // The previous Supabase project no longer resolves. Keep these empty until a
+  // live project is configured; GitHub Pages QR control will use WebRTC.
+  supabaseUrl:     '',
+  supabaseAnonKey: '',
 };

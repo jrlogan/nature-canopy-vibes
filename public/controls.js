@@ -167,6 +167,24 @@
       background: #ff5555;
     }
     #ncv-socket-dot.connected { background: #55dd88; box-shadow: 0 0 5px #55dd88; }
+    @media (max-width: 520px) {
+      #ncv-panel {
+        inset: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
+          max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+        width: auto;
+        max-height: none;
+        padding: 14px 14px 18px;
+        border-radius: 10px;
+        overscroll-behavior: contain;
+      }
+      #ncv-panel.hidden { transform: translateY(8px); }
+      #ncv-panel .ncv-row { margin-bottom: 10px; }
+      #ncv-panel input[type=range] { height: 6px; }
+      #ncv-panel input[type=range]::-webkit-slider-thumb { width: 20px; height: 20px; }
+      #ncv-panel .ncv-weather-row button,
+      #ncv-panel .ncv-depth-row button,
+      #ncv-panel .ncv-btn { min-height: 38px; }
+    }
   `;
   document.head.appendChild(style);
 

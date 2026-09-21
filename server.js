@@ -374,6 +374,10 @@ async function fetchLiveWeather() {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`live weather fetch failed: ${res.status}`);
   const data = await res.json();
+  // A slower response from the previous place must not overwrite a newer
+  // location or a manual preview selected while the request was in flight.
+  if (environmentState.simulationMode !== 'live' || environmentState.journeyActive
+    || environmentState.liveLocationLat !== lat || environmentState.liveLocationLon !== lon) return;
   const cur = data.current || {};
   environmentState.lightningIntensity = mapWeatherCode(cur.weather_code ?? 0) === 'storm' ? 0.8 : 0.0;
 

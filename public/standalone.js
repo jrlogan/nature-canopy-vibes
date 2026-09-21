@@ -43,13 +43,15 @@
 
     // Trigger 'connect' callback asynchronously (mimics real socket.io behaviour).
     setTimeout(function() {
+      // Register the in-page server handlers before connect listeners emit
+      // startup settings (including a shared scene's coordinates).
+      if (isServerTab) {
+        handleClientMessage({ type: 'client_connect', socketId: clientSocket.id });
+      }
       if (clientListeners['connect']) {
         clientListeners['connect'].forEach(function(cb) { cb(); });
       }
       // Announce to the in-page server that this client has connected.
-      if (isServerTab) {
-        handleClientMessage({ type: 'client_connect', socketId: clientSocket.id });
-      }
       channelPost({ type: 'client_connect', socketId: clientSocket.id });
     }, 10);
 
@@ -68,6 +70,12 @@
     let subscribed = false;
     const listeners = {};
     let heartbeatTimer = null;
+
+    const notifyStatus = function(status) {
+      (listeners['_sub'] || []).forEach(function(cb) {
+        try { cb(status); } catch(ex) {}
+      });
+    };
 
     const nextRef = () => String(++refN);
 
@@ -106,7 +114,11 @@
         if (msg.event === 'phx_reply' && msg.ref === joinRef && msg.payload && msg.payload.status === 'ok') {
           subscribed = true;
           console.log('[supabase-ws] Subscribed to channel:', channelName);
-          (listeners['_sub'] || []).forEach(function(cb) { try { cb('SUBSCRIBED'); } catch(ex) {} });
+          notifyStatus('SUBSCRIBED');
+        } else if (msg.event === 'phx_reply' && msg.ref === joinRef) {
+          subscribed = false;
+          console.warn('[supabase-ws] Channel join rejected:', msg.payload);
+          notifyStatus('CHANNEL_ERROR');
         }
         if (msg.event === 'broadcast' && msg.payload && msg.payload.event) {
           var evName = msg.payload.event;
@@ -116,6 +128,7 @@
       ws.onclose = function(e) {
         subscribed = false;
         clearInterval(heartbeatTimer);
+        notifyStatus('CLOSED');
         console.warn('[supabase-ws] closed code=' + e.code + ' reason=' + (e.reason || 'none'));
         setTimeout(connect, 3000);
       };
@@ -746,6 +759,10 @@ async function fetchLiveWeather() {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`live weather fetch failed: ${res.status}`);
   const data = await res.json();
+  // A slower response from the previous place must not overwrite a newer
+  // location or a manual preview selected while the request was in flight.
+  if (environmentState.simulationMode !== 'live' || environmentState.journeyActive
+    || environmentState.liveLocationLat !== lat || environmentState.liveLocationLon !== lon) return;
   const cur = data.current || {};
   environmentState.lightningIntensity = mapWeatherCode(cur.weather_code ?? 0) === 'storm' ? 0.8 : 0.0;
 
@@ -1129,11 +1146,9 @@ io.on('connection', (socket) => {
   console.log('[supabase:host] config url set:', !!_cfg.supabaseUrl, '| key set:', !!_cfg.supabaseAnonKey);
   if (!_cfg.supabaseUrl || !_cfg.supabaseAnonKey) {
     window.__ncvSupabaseHostEnabled = false;
-    console.warn('[supabase:host] Credentials missing — cross-device remote disabled. Check config.js.');
+    console.log('[supabase:host] Relay not configured; using WebRTC for cross-device control.');
     return;
   }
-  window.__ncvSupabaseHostEnabled = true;
-
   const roomId = window.__supabaseRoomId; // already generated synchronously above
 
   try {
@@ -1162,6 +1177,10 @@ io.on('connection', (socket) => {
     });
 
     sbCh.subscribe(function(status) {
+      // Do not advertise this transport to the QR builder until the channel is
+      // genuinely usable. If Supabase is paused, deleted, or unreachable, the
+      // QR builder can then use the already-initialised WebRTC peer instead.
+      window.__ncvSupabaseHostEnabled = status === 'SUBSCRIBED';
       if (status !== 'SUBSCRIBED') return;
       console.log('[supabase] Host room ready — share this room ID:', roomId);
       // Send initial state in case a remote is already waiting

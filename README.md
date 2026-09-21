@@ -16,6 +16,23 @@ For a matching phone remote URL, use:
 
 ## Recommended Usage
 
+### Showing a friend on a phone
+
+Phones automatically show a small demo toolbar: **Another place**, **Controls**,
+and **Share scene**. Sharing captures location and visual settings as a manual
+preview; it does not join the original display's controller room or reproduce
+the exact randomly generated trees. Use `?demo=1` to show the toolbar on desktop,
+or `?demo=0` to hide it for an installation.
+
+Scene changes crossfade over about two seconds (shortened with the system's
+reduced-motion preference). Regional tree mixes and seasonal colour are visual
+approximations, not live foliage observations. Portrait displays scale branches
+and leaf clusters to screen width to preserve an opening onto the sky.
+
+The remote reports a connection only after it receives display state. With
+Supabase unconfigured, cross-device QR control uses PeerJS/WebRTC and depends on
+network connectivity; keep the display open and scan its current QR code.
+
 This project is designed as an ambient **ceiling projection** experience:
 
 - Main display runs on a small computer (Raspberry Pi or mini PC) connected to a projector.

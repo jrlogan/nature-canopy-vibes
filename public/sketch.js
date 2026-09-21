@@ -137,6 +137,9 @@ socket.on('env:sync', (state) => {
   const prevLoc = `${env.liveLocationLat ?? ''},${env.liveLocationLon ?? ''}`;
   const prevDate = env.liveDateISO;
   const prevClientEpoch = env.journeyEpochMs;
+  if (window._ncvDidFirstSync && ['liveLocationLat', 'liveLocationLon', 'timeOfDay', 'currentWeather', 'season'].some(
+    key => state[key] !== undefined && state[key] !== env[key]
+  ) && !state.journeyActive) window._ncvBeginLocationTransition();
   env.apply(state);
   window._ncvShowConstellations = !!env.showConstellations;
   // The client extrapolates the journey clock every frame (see draw()). Only
@@ -169,7 +172,6 @@ socket.on('env:sync', (state) => {
   }
   if (prevLoc !== nextLoc) {
     if (window._ncvDidFirstSync) {
-      window._ncvBeginLocationTransition && _ncvBeginLocationTransition();
       journeyMap.onLocationChange(prevLat, prevLon);
     }
     window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
@@ -181,6 +183,7 @@ socket.on('env:sync', (state) => {
   }
   window._ncvDidFirstSync = true;
   window._ncvSyncPanel && _ncvSyncPanel();
+  window.dispatchEvent(new CustomEvent('ncv:state', { detail: env.snapshot() }));
 });
 socket.on('remote:command', (payload = {}) => {
   switch (payload.command) {
@@ -418,6 +421,7 @@ let showDebug = false;
 let projectionEdgeMask = null;
 const locationTransition = {
   active: false,
+  image: null,
   startMs: 0,
   fadeInMs: 280,
   holdMs: 220,
@@ -441,6 +445,10 @@ window._ncvTriggerFlock = () => { murmuration && murmuration.triggerFlock(); };
 window._ncvInvalidateSkyCache = () => { starField && starField.invalidateCache(); };
 window._ncvEnableAudio = () => { atmosphere && atmosphere.enableAudio(); };
 window._ncvBeginLocationTransition = () => {
+  if (!canopy || typeof get !== 'function') return;
+  // Capture the currently visible frame before applying new scene state.
+  // Replacing the one retained image also handles rapid successive selections.
+  locationTransition.image = get();
   locationTransition.active = true;
   locationTransition.startMs = millis();
 };
@@ -780,22 +788,17 @@ function drawProjectionEdgeFade() {
 function drawLocationTransitionOverlay() {
   if (!locationTransition.active) return;
   const t = millis() - locationTransition.startMs;
-  const inT = locationTransition.fadeInMs;
-  const hold = locationTransition.holdMs;
-  const outT = locationTransition.fadeOutMs;
-  const total = inT + hold + outT;
-  let a = 0;
-  if (t <= inT) a = map(t, 0, inT, 0, 255);
-  else if (t <= inT + hold) a = 255;
-  else if (t <= total) a = map(t, inT + hold, total, 255, 0);
-  else {
+  const duration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 200 : 2200;
+  if (t >= duration || !locationTransition.image) {
     locationTransition.active = false;
+    locationTransition.image = null;
     return;
   }
+  const progress = constrain(t / duration, 0, 1);
+  const eased = progress * progress * (3 - 2 * progress);
   push();
-  noStroke();
-  fill(0, 0, 0, constrain(a, 0, 255));
-  rect(0, 0, width, height);
+  tint(255, 255 * (1 - eased));
+  image(locationTransition.image, 0, 0, width, height);
   pop();
 }
 
@@ -1235,7 +1238,9 @@ function skyColor() {
 // Debug HUD
 // ----------------------------------------------------------
 function drawDebugHUD() {
-  const PAD = 20, LINE = 22;
+  const compact = width < 430 || height < 620;
+  const PAD = compact ? 10 : 20;
+  const LINE = compact ? 16 : 22;
   const rows = [
     ['EnvironmentManager', '',                           true ],
     ['timeOfDay',          _fmtTime(env.timeOfDay)           ],
@@ -1263,8 +1268,9 @@ function drawDebugHUD() {
   ];
 
   fill(0, 0, 0, 145); noStroke();
-  rect(PAD - 8, PAD - 8, 330, LINE * rows.length + 18, 7);
-  textSize(12);
+  const boxW = min(330, width - PAD * 2);
+  rect(PAD - 6, PAD - 6, boxW, min(LINE * rows.length + 14, height - PAD), 7);
+  textSize(compact ? 9 : 12);
 
   rows.forEach(([label, val, isHeader, isDim], i) => {
     const y = PAD + i * LINE;
@@ -1272,7 +1278,7 @@ function drawDebugHUD() {
     else if (isDim)  { fill(120, 120, 120); textStyle(NORMAL); }
     else             { fill(200, 210, 220); textStyle(NORMAL); }
     text(label, PAD, y);
-    if (val) { fill(240, 210, 80); text(val, PAD + 175, y); }
+    if (val) { fill(240, 210, 80); text(val, PAD + boxW * 0.53, y); }
   });
   textStyle(NORMAL);
 }

@@ -270,15 +270,26 @@
     .jn-hint { color: var(--muted); font-size: 0.8rem; margin: 4px 0 0; }
 
     @media (max-width: 520px) {
-      .city-grid {
-        grid-template-columns: 1fr;
-      }
+      .wrap { padding: max(12px, env(safe-area-inset-top)) 10px max(18px, env(safe-area-inset-bottom)); }
+      .panel { padding: 10px; border-radius: 12px; }
+      h1 { font-size: 1.1rem; }
+      .status { margin-bottom: 12px; font-size: 0.86rem; }
+      .city-grid { gap: 6px; }
+      .city-btn { min-height: 44px; padding: 8px 6px; font-size: 0.86rem; line-height: 1.15; }
+      button { min-height: 48px; font-size: 0.98rem; }
       .adv-grid-2, .adv-grid-3 {
         grid-template-columns: 1fr;
       }
       .adv-check-grid {
         grid-template-columns: 1fr;
       }
+    }
+
+    @media (max-width: 340px) {
+      .city-grid, .info-grid, .jn-grid-4 {
+        grid-template-columns: 1fr;
+      }
+      .jn-grid-3 { grid-template-columns: 1fr 1fr; }
     }
 
   </style>
@@ -547,8 +558,8 @@
   </main>
 
   <script src="config.js"></script>
-  <script src="standalone.js"></script>
   <script src="/socket.io/socket.io.js"></script>
+  <script src="standalone.js"></script>
   <script src="remote.js"></script>
 </body>
 </html>

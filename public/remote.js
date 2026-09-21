@@ -561,15 +561,24 @@ function buildCalibrationUrl() {
   return hostUrl.toString();
 }
 
+let lastDisplaySync = 0;
 socket.on('connect', () => {
-  setStatus(`Connected (${socket.id})`);
+  setStatus('Looking for display…');
 });
 
 socket.on('disconnect', () => {
-  setStatus('Disconnected');
+  lastDisplaySync = 0;
+  setStatus('Reconnecting to display…');
 });
 
+setInterval(() => {
+  if (!lastDisplaySync) setStatus('Display not found yet — keep the scene open and scan its current QR code.');
+  else if (Date.now() - lastDisplaySync > 90000) setStatus('Waiting for display — connection may have been interrupted.');
+}, 15000);
+
 socket.on('env:sync', (state) => {
+  lastDisplaySync = Date.now();
+  setStatus(`Connected to display · ${state.liveLocationName || 'Canopy'}`);
   latestState = { ...state };
 
   skyLabelsOn = !!state.showConstellationLabels && !!state.showConstellations;

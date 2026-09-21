@@ -2,12 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Nature Canopy Vibes</title>
   <style>
     /* Edge-to-edge, no chrome — critical for ceiling projection */
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+    body { min-height: 100dvh; }
     canvas { display: block; }
 
     #qr-overlay {
@@ -23,6 +24,8 @@
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.3s ease;
+      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+        max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
     }
     #qr-overlay.visible {
       opacity: 1;
@@ -44,6 +47,30 @@
       margin-top: 15px;
       font-size: 0.9rem;
       color: #aaa;
+      text-align: center;
+    }
+
+    @media (max-width: 520px), (max-height: 560px) {
+      #qr-container {
+        padding: 12px;
+        margin-bottom: 14px;
+      }
+      #qr-container canvas,
+      #qr-container img {
+        width: min(62vw, 42vh, 256px) !important;
+        height: min(62vw, 42vh, 256px) !important;
+      }
+      .qr-text {
+        max-width: 32rem;
+        font-size: clamp(0.95rem, 4.5vw, 1.1rem);
+        line-height: 1.35;
+      }
+      .qr-subtext {
+        margin-top: 10px;
+        max-width: 30rem;
+        font-size: 0.75rem;
+        line-height: 1.35;
+      }
     }
   </style>
 </head>
@@ -77,13 +104,10 @@
        No SDK needed: standalone.js uses raw WebSocket to Supabase Realtime. -->
   <script src="config.js"></script>
 
-  <!-- 3. Standalone mode — must load BEFORE socket.io so window.io is always defined.
-       On a real server, socket.io loads next and overwrites window.io with the real client.
-       On GitHub Pages (static hosting), socket.io 404s and the standalone mock stays in place. -->
-  <script src="standalone.js"></script>
-
-  <!-- 3. Socket.io client — auto-served by the Socket.io server (no-op 404 on static hosting) -->
+  <!-- Prefer the real server client. On static hosting it 404s, then the
+       standalone fallback installs its browser-side transport. -->
   <script src="/socket.io/socket.io.js"></script>
+  <script src="standalone.js"></script>
 
   <!-- 4. Visual subsystems (order matters: each builds on the previous) -->
   <script src="solar.js"></script>
@@ -117,6 +141,7 @@
     }
   </script>
   <script src="sketch.js"></script>
+  <script src="demo.js"></script>
 
 </body>
 </html>
