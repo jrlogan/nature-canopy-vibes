@@ -91,7 +91,11 @@ const controls = {
   timeOfDay: {
     slider: document.getElementById('time-slider'),
     readout: document.getElementById('time-readout'),
-    fmt: (v) => `${(Number(v) || 0).toFixed(1)}h`,
+    fmt: (v) => {
+      const minutes = Math.round((Number(v) || 0) * 60) % 1440;
+      const hour = Math.floor(minutes / 60);
+      return `${hour % 12 || 12}:${String(minutes % 60).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`;
+    },
     parse: (v) => clampRange(v, 0, 24),
   },
   windSpeed: {
