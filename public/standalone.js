@@ -544,7 +544,14 @@ const environmentState = {
   performanceMode: 'auto',
   sleeping: false,
   lightningIntensity: 0.0, // 0.0 to 1.0 based on real-world data
-  // Room / presentation controls (mirrors server.js; journey mode is server-only).
+  journeyActive: false,
+  journeyRate: 0,
+  journeyEpochMs: Date.now(),
+  journeySyncAtMs: Date.now(),
+  journeyLabel: '',
+  journeyWeatherHold: true,
+  journeyWeatherSource: 'hold',
+  // Room / presentation controls.
   brightness: 1.0,
   overlayRotationDeg: 0,
   overlayDual: false,
@@ -554,6 +561,40 @@ const environmentState = {
 };
 
 let lastLiveFetchAt = 0;
+let journeyLastTick = Date.now();
+function stampJourney() {
+  const local = new Date(environmentState.journeyEpochMs + environmentState.liveLocationLon * 240000);
+  environmentState.liveDateISO = local.toISOString();
+  environmentState.timeOfDay = local.getUTCHours() + local.getUTCMinutes()/60 + local.getUTCSeconds()/3600;
+  environmentState.journeySyncAtMs = Date.now();
+}
+function advanceJourney() {
+  const now = Date.now();
+  if (environmentState.journeyActive) {
+    environmentState.journeyEpochMs = Math.max(Date.UTC(1700,0,1), Math.min(Date.UTC(2201,0,1)-1,
+      environmentState.journeyEpochMs + environmentState.journeyRate * (now - journeyLastTick)));
+    stampJourney();
+  }
+  journeyLastTick = now;
+}
+function startJourney(rate) {
+  advanceJourney();
+  if (!environmentState.journeyActive) {
+    const base = new Date(environmentState.liveDateISO || Date.now());
+    environmentState.journeyEpochMs = environmentState.simulationMode === 'live' ? Date.now()
+      : Date.UTC(base.getUTCFullYear(),base.getUTCMonth(),base.getUTCDate()) + environmentState.timeOfDay*3600000 - environmentState.liveLocationLon*240000;
+  }
+  environmentState.journeyActive = true;
+  environmentState.journeyRate = Math.max(-2592000,Math.min(2592000,Number(rate)||0));
+  environmentState.simulationMode = 'journey';
+  environmentState.journeyWeatherHold = true;
+  environmentState.journeyWeatherSource = 'hold';
+  stampJourney();
+}
+setInterval(() => {
+  advanceJourney();
+  if (environmentState.journeyActive && environmentState.journeyRate) io.emit('env:sync', environmentState);
+}, 1000);
 
 // const { exec } = require('child_process');
 function setDisplayPower(on) {
@@ -597,6 +638,12 @@ function normalizeSeason(v) {
 }
 
 function applyRemoteEnvPatch(data = {}) {
+  if (environmentState.journeyActive && Number.isFinite(Number(data.timeOfDay))) {
+    advanceJourney();
+    const local = environmentState.journeyEpochMs + environmentState.liveLocationLon * 240000;
+    environmentState.journeyEpochMs = Math.floor(local/86400000)*86400000 + Number(data.timeOfDay)*3600000 - environmentState.liveLocationLon*240000;
+    stampJourney();
+  }
   const weather = String(data.currentWeather || '').toLowerCase();
   const season = normalizeSeason(data.season);
   let changed = false;
@@ -663,7 +710,7 @@ function applyRemoteEnvPatch(data = {}) {
     environmentState.season = season;
     changed = true;
   }
-  if (forceManual && environmentState.simulationMode !== 'manual') {
+  if (forceManual && !environmentState.journeyActive && environmentState.simulationMode !== 'manual') {
     environmentState.simulationMode = 'manual';
     changed = true;
   }
@@ -1034,6 +1081,34 @@ io.on('connection', (socket) => {
     if (!command) return;
 
     switch (command) {
+      case 'journey_start':
+      case 'journey_set_rate':
+        if (!Number.isFinite(Number(data.rate))) return;
+        startJourney(Number(data.rate)); break;
+      case 'journey_toggle':
+        startJourney(environmentState.journeyActive && environmentState.journeyRate ? 0 : 60); break;
+      case 'journey_stop':
+        environmentState.journeyActive = false;
+        environmentState.journeyRate = 0;
+        environmentState.simulationMode = 'live';
+        environmentState.liveDateISO = new Date().toISOString();
+        setApproxLocalTimeFromLon(environmentState.liveLocationLon);
+        lastLiveFetchAt = 0; break;
+      case 'journey_now':
+        startJourney(1); environmentState.journeyEpochMs = Date.now(); stampJourney(); break;
+      case 'journey_scrub':
+        if (!Number.isFinite(Number(data.sec))) return;
+        startJourney(environmentState.journeyActive ? environmentState.journeyRate : 0);
+        environmentState.journeyEpochMs += Number(data.sec)*1000; advanceJourney(); break;
+      case 'journey_set_epoch': {
+        const e = data.epoch;
+        const epoch = typeof e === 'object' && e ? Date.UTC(Number(e.year),Number(e.month||1)-1,Number(e.day||1),Number(e.hour||0)) : Number(e);
+        if (!Number.isFinite(epoch) || epoch < Date.UTC(1700,0,1) || epoch >= Date.UTC(2201,0,1)) {
+          socket.emit('sim:error', {message:'On GitHub Pages, choose a date from 1700 through 2200.'}); return;
+        }
+        startJourney(data.rate ?? 1); environmentState.journeyEpochMs = epoch;
+        environmentState.journeyLabel = String(data.label || '').slice(0,80); stampJourney(); break;
+      }
       case 'toggle_sleep':
         const nextSleep = data.value !== undefined ? !!data.value : !environmentState.sleeping;
         environmentState.sleeping = nextSleep;
@@ -1041,6 +1116,8 @@ io.on('connection', (socket) => {
         break;
       case 'set_location': {
         try {
+          environmentState.journeyActive = false;
+          environmentState.journeyRate = 0;
           const lat = Number(data.lat);
           const lon = Number(data.lon);
           const query = String(data.query || data.name || '').trim();

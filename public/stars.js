@@ -87,8 +87,9 @@ class StarField {
   }
 
   _syncObserverFromEnv() {
-    const lat = Number(env.liveLocationLat);
-    const lon = Number(env.liveLocationLon);
+    const location = window.NCV_CAPE?.observer();
+    const lat = Number(location?.lat ?? env.liveLocationLat);
+    const lon = Number(location?.lon ?? env.liveLocationLon);
     const nextLat = Number.isFinite(lat) ? lat : this.lat;
     const nextLon = Number.isFinite(lon) ? lon : this.lon;
     if (Math.abs(nextLat - this.lat) > 0.35) {
@@ -496,7 +497,8 @@ class StarField {
       const lst = this._getLST();
       const prev = this.lastRenderLST;
       const dl = prev === undefined ? 999 : Math.abs(((lst - prev + 540) % 360) - 180);
-      if (dl > 0.25 && millis() - (this.lastRenderAt || 0) > 120) this.cacheDirty = true;
+      const flowing = env.journeyActive || window.NCV_EXPERIENCES?.date();
+      if (dl > (flowing ? 0.04 : 0.25) && millis() - (this.lastRenderAt || 0) > (flowing ? 30 : 120)) this.cacheDirty = true;
     }
 
     if (nowNight && this.cacheDirty) this._renderNightBuffer();

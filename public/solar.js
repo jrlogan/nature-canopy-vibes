@@ -69,7 +69,8 @@
     const lat = Number.isFinite(Number(e.liveLocationLat)) ? Number(e.liveLocationLat) : 41.31;
     const tod = Number(e.timeOfDay) || 0;
     const doy = dayOfYear(e.liveDateISO);
-    const key = `${lat.toFixed(2)}|${tod.toFixed(3)}|${doy}`;
+    const skyDate = window.NCV_PLANETARIUM?.time();
+    const key = `${lat.toFixed(2)}|${tod.toFixed(3)}|${doy}|${skyDate ? Math.floor(skyDate.getTime()/1000) : ''}|${window.NCV_CAPE?.observer()?.lat ?? ''}`;
     if (key === cache.key) return cache.value;
     const preciseSun = window.NCV_PLANETARIUM?.body('Sun');
     const s = preciseSun && preciseSun.altDeg > -90

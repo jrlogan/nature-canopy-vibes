@@ -9,6 +9,8 @@
   let iss = null, satelliteStatus = 'Satellite tracking is off.', satelliteEnabled = false;
   let lastSatelliteFetch = 0;
   function time() {
+    const experienceDate = window.NCV_EXPERIENCES?.date();
+    if (experienceDate) return experienceDate;
     if (env.journeyActive) return new Date(env.journeyEpochMs);
     if (env.simulationMode === 'live') return new Date();
     // Manual hours are local scene time, approximated by longitude (solar time).
@@ -23,10 +25,11 @@
   }
   function refresh() {
     const date = time();
-    const key = [Math.floor(date.getTime() / 10000), env.liveLocationLat, env.liveLocationLon, env.skyAzimuthOffsetDeg, width, height].join('|');
+    const location = window.NCV_CAPE?.observer() || {lat:env.liveLocationLat, lon:env.liveLocationLon};
+    const key = [Math.floor(date.getTime() / 1000), location.lat, location.lon, env.skyAzimuthOffsetDeg, width, height].join('|');
     if (key === cacheKey) return;
     cacheKey = key;
-    const observer = new Astronomy.Observer(Number(env.liveLocationLat) || 0, Number(env.liveLocationLon) || 0, 0);
+    const observer = new Astronomy.Observer(Number(location.lat) || 0, Number(location.lon) || 0, 0);
     bodies = {};
     // Outside the engine's documented validation interval, preserve the old
     // ambient sky without presenting precise tour predictions.
@@ -178,6 +181,7 @@
     document.body.append(button, panel);
     heading = document.getElementById('tour-heading'); content = document.getElementById('tour-content'); narration = document.getElementById('tour-narration'); voiceSelect = document.getElementById('tour-voice');
     const toggle = () => { open = !open; panel.hidden = !open; button.setAttribute('aria-expanded', String(open)); if (!open) window.speechSynthesis?.cancel(); else { updateCard(); speak(); } };
+    window.NCV_PLANETARIUM.setOpen = value => { if (open !== value) toggle(); };
     button.onclick = toggle; document.getElementById('tour-close').onclick = toggle;
     const steps = Object.keys(descriptions);
     function next(delta) { selected = steps[(steps.indexOf(selected) + delta + steps.length) % steps.length]; updateCard(); speak(); }
@@ -197,6 +201,6 @@
     voiceSelect.onchange = speak;
     setInterval(() => { if (open && typeof env !== 'undefined') updateCard(); }, 2000);
   }
-  window.NCV_PLANETARIUM = { body, drawMoon, drawPlanets, drawSatellites, time };
+  window.NCV_PLANETARIUM = { body, drawMoon, drawPlanets, drawSatellites, time, selection: () => selected };
   window.addEventListener('load', init);
 })();

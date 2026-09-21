@@ -297,6 +297,8 @@ class AtmosphereSystem {
     this._drawAurora();
     this._drawSunAndMoon();
     window.NCV_PLANETARIUM?.drawSatellites();
+    window.NCV_EXPERIENCES?.drawLaunch();
+    window.NCV_CAPE?.draw();
     this._drawClouds();
     this._drawDistantFlash();
     this._drawFlashSkyWash();

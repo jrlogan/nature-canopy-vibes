@@ -217,6 +217,8 @@ function journeyRateText(rate) {
 }
 
 function updateJourneyPanel(state = {}) {
+  document.getElementById('flow-status').textContent = state.journeyActive ? journeyRateText(state.journeyRate) : 'Normal scene time';
+  document.querySelectorAll('[data-flow-rate]').forEach(b => b.setAttribute('aria-pressed',String(!!state.journeyActive && Number(b.dataset.flowRate) === Number(state.journeyRate))));
   if (!jn.time) return;
   const active = !!state.journeyActive;
   const d = new Date(state.liveDateISO || Date.now());
@@ -254,6 +256,8 @@ function updateJourneyPanel(state = {}) {
 }
 
 function initJourneyPanel() {
+  document.querySelectorAll('[data-flow-rate]').forEach(b => b.addEventListener('click', () => sendCommand('journey_set_rate', 'Time flow', {rate:Number(b.dataset.flowRate)})));
+  document.getElementById('flow-live').addEventListener('click', () => sendCommand('journey_stop','Back to live time'));
   if (!jn.time) return;
   jn.toggle.addEventListener('click', () => sendCommand('journey_toggle', 'Journey play/pause'));
   jn.now.addEventListener('click', () => sendCommand('journey_now', 'Journey → now'));
@@ -302,17 +306,8 @@ function initJourneyPanel() {
       jn.dests.appendChild(b);
     }
   }).catch(() => {
-    // Static hosting (GitHub Pages): no server clock, so hide the journey
-    // controls but keep the Room card, which the standalone shim understands.
-    const row = document.getElementById('journey-row');
-    if (!row) return;
-    const roomCard = jn.clock ? jn.clock.closest('.adv-card') : null;
-    Array.from(row.children).forEach((el) => {
-      if (el === roomCard) return;
-      if (el.classList && el.classList.contains('section-title')) { el.textContent = 'Room'; return; }
-      el.style.display = 'none';
-    });
-    if (roomCard) roomCard.querySelector('#jn-scene').style.display = '';
+    jn.dests.textContent = 'GitHub Pages: continuous sky time supports 1700–2200. Weather stays as configured; archive weather and destination presets require the server.';
+    jn.weatherAuto.hidden = true;
   });
 }
 

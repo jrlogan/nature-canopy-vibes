@@ -306,7 +306,17 @@
         <label class="adv-label" for="time-slider"><span>Time of day</span><b id="time-readout">12:00 PM</b></label>
         <input id="time-slider" class="advanced-slider" type="range" min="0" max="24" step="0.05" value="12" aria-describedby="time-hint" />
         <div class="time-markers" aria-hidden="true"><span>Midnight</span><span>Noon</span><span>Midnight</span></div>
-        <p id="time-hint" class="jn-hint">Release to apply. Choose a location again to return to live time.</p>
+        <p id="time-hint" class="jn-hint">Release to choose a starting time, then watch the sky move.</p>
+        <p class="section-title">Watch time flow</p>
+        <div class="jn-grid-3">
+          <button data-flow-rate="-600" type="button">Rewind 600×</button>
+          <button data-flow-rate="0" type="button">Pause</button>
+          <button data-flow-rate="60" type="button">Gentle 60×</button>
+          <button data-flow-rate="600" type="button">Flow 600×</button>
+          <button data-flow-rate="3600" type="button">Sweep 3600×</button>
+          <button id="flow-live" type="button">Live time</button>
+        </div>
+        <p id="flow-status" class="jn-hint" role="status">Live time</p>
       </div>
       <div class="row">
         <p class="section-title">Location</p>
