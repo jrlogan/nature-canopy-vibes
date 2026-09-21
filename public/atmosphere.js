@@ -296,6 +296,7 @@ class AtmosphereSystem {
     this._drawOvercastWash();
     this._drawAurora();
     this._drawSunAndMoon();
+    window.NCV_PLANETARIUM?.drawSatellites();
     this._drawClouds();
     this._drawDistantFlash();
     this._drawFlashSkyWash();
@@ -553,7 +554,9 @@ class AtmosphereSystem {
       }
     }
 
-    if (moon.visible) {
+    if (moon.visible && moon.supported && window.NCV_PLANETARIUM) {
+      NCV_PLANETARIUM.drawMoon(moon, cover);
+    } else if (moon.visible) {
       const phase = moon.phase;
       const d = 42;
       const illum = 0.5 * (1 - cos(TWO_PI * phase)); // 0=new, 1=full
@@ -623,6 +626,7 @@ class AtmosphereSystem {
   // Sun on the same dome as the stars and planets (azimuthal equidistant,
   // zenith at centre, horizon at the inscribed circle), from its real RA/Dec.
   _sunScreenPosition(hour) {
+    if (window.NCV_PLANETARIUM?.body('Sun').supported) return NCV_PLANETARIUM.body('Sun');
     const now = this._dateAtHour(hour);
     const jd = this._julianDay(now);
     const d = jd - 2451543.5;
@@ -640,6 +644,7 @@ class AtmosphereSystem {
   // Real moon: position from a low-precision lunar theory, phase from the
   // moon–sun elongation on the scene's date (so a birthday shows its moon).
   _moonFromTimeAndDate(hour) {
+    if (window.NCV_PLANETARIUM?.body('Moon').supported) return NCV_PLANETARIUM.body('Moon');
     const now = this._dateAtHour(hour);
     const jd = this._julianDay(now);
     const d = jd - 2451543.5;
@@ -655,6 +660,7 @@ class AtmosphereSystem {
   }
 
   _drawPlanets(hour, cloudCover, moon, sun) {
+    if (window.NCV_PLANETARIUM?.body('Sun').supported) { NCV_PLANETARIUM.drawPlanets(cloudCover); return; }
     const cloudK = 1 - cloudCover * 0.55;
     if (cloudK <= 0.08) return;
 
@@ -704,7 +710,7 @@ class AtmosphereSystem {
       fill(p.r, p.g, p.b, a);
       circle(proj.x, proj.y, p.size);
 
-      if (p.key === 'jupiter') {
+      if (p.key === 'saturn') {
         noFill();
         stroke(226, 212, 182, a * 0.68);
         strokeWeight(1.0);
@@ -719,6 +725,7 @@ class AtmosphereSystem {
   }
 
   _dateAtHour(hour) {
+    if (window.NCV_PLANETARIUM) return NCV_PLANETARIUM.time();
     if (env.journeyActive && Number.isFinite(env.journeyEpochMs)) return new Date(env.journeyEpochMs);
     const base = env.liveDateISO ? new Date(env.liveDateISO) : new Date();
     const d = Number.isFinite(base.getTime()) ? new Date(base.getTime()) : new Date();

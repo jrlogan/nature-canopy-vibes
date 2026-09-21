@@ -25,6 +25,7 @@
   const norm360 = (v) => ((v % 360) + 360) % 360;
 
   function sceneDate() {
+    if (window.NCV_PLANETARIUM) return NCV_PLANETARIUM.time();
     const e = typeof env !== 'undefined' ? env : {};
     if (e.journeyActive && Number.isFinite(e.journeyEpochMs)) return new Date(e.journeyEpochMs);
     const base = e.liveDateISO ? new Date(e.liveDateISO) : new Date();
@@ -70,7 +71,10 @@
     const doy = dayOfYear(e.liveDateISO);
     const key = `${lat.toFixed(2)}|${tod.toFixed(3)}|${doy}`;
     if (key === cache.key) return cache.value;
-    const s = sunAltAz(lat, tod, doy);
+    const preciseSun = window.NCV_PLANETARIUM?.body('Sun');
+    const s = preciseSun && preciseSun.altDeg > -90
+      ? { alt: preciseSun.altDeg, az: preciseSun.azDeg, morning: tod < 12 }
+      : sunAltAz(lat, tod, doy);
     const alt = s.alt;
     const v = {
       alt,

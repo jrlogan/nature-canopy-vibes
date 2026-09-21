@@ -16,6 +16,22 @@ For a matching phone remote URL, use:
 
 ## Recommended Usage
 
+### Sky tour
+
+Use **Sky tour** on the display to explore the Moon, five naked-eye planets,
+and satellite viewing. Text is the default; enable **Narration** and choose a
+device voice for optional spoken guidance. The tour reports objects below the
+horizon without moving them into view. Closing the tour stops narration.
+
+The Moon now has a shaded phase facing the Sun; its surface is illustrative and
+its disc is enlarged. Astronomy Engine supplies moon/planet positions and
+brightness for 1700–2200, with the earlier approximate sky retained outside that
+range. **Track the ISS** fetches current CelesTrak elements; old dates, stale
+elements, daylight, Earth shadow and objects below the horizon suppress the
+satellite. Orbit-service failure is shown in the ISS tour card. Historical
+comets are discussed in the tour but their trajectories are not rendered yet.
+See `public/vendor/astronomy-sources.md` for sources and limitations.
+
 ### Showing a friend on a phone
 
 Phones automatically show a small demo toolbar: **Another place**, **Controls**,

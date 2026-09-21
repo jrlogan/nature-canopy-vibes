@@ -106,6 +106,7 @@ class StarField {
   }
 
   _dateAtEnvTime() {
+    if (window.NCV_PLANETARIUM) return NCV_PLANETARIUM.time();
     // Journey mode carries a true UTC clock; use it directly.
     if (env.journeyActive && Number.isFinite(env.journeyEpochMs)) return new Date(env.journeyEpochMs);
     const base = env.liveDateISO ? new Date(env.liveDateISO) : new Date();
