@@ -48,6 +48,8 @@ class Bird {
     this.size       = random(13, 24);
     this.flapPhase  = random(TWO_PI);
     this.flapRate   = 0;
+    this.cruiseFlapRate = random(0.42, 0.58);
+    this.flightHeading = 0;
     this.shouldRemove = false;
     this.vel        = { x: 1, y: 0 };
     this.layer      = random() < 0.58 ? 'back' : 'front';
@@ -75,11 +77,14 @@ class Bird {
     this.perchNode   = null;
     this.flightT     = 0;
     // Hops are quick; flock arrivals are slower and more graceful
-    this.flightSpeed = isHop ? random(0.030, 0.055) : random(0.014, 0.025);
-    this.flapRate    = 0.22;
+    const distance = dist(fromX, fromY, toNode.x, toNode.y);
+    const duration = constrain(distance / (isHop ? 180 : 220), 0.45, 7);
+    this.flightSpeed = 1 / (duration * 60);
+    this.flapRate    = this.cruiseFlapRate;
     // Arc height proportional to distance — short hops arc less
     const d = dist(fromX, fromY, toNode.x, toNode.y);
-    this.arcHeight   = d * random(0.22, 0.42);
+    this.arcHeight   = Math.min(100, d * random(0.12, 0.23)) * (random() < 0.5 ? -1 : 1);
+    this.flightHeading = atan2(toNode.y - fromY, toNode.x - fromX);
   }
 
   _land(node) {
@@ -101,7 +106,7 @@ class Bird {
     const angle = away + random(-PI * 0.4, PI * 0.4);
     const speed = random(5, 9);
     this.vel    = { x: cos(angle) * speed, y: sin(angle) * speed };
-    this.flapRate = 0.30; // frantic
+    this.flapRate = this.cruiseFlapRate * 1.25;
   }
 
   spook() {
@@ -123,18 +128,20 @@ class Bird {
 
   _updateFlight(dt) {
     this.flightT = min(1, this.flightT + this.flightSpeed * dt);
-    const t  = this.flightT;
+    // Ease into takeoff and brake into the perch without a sudden stop.
+    const t  = this.flightT * this.flightT * (3 - 2 * this.flightT);
     const fx = this.flightFrom.x,   fy = this.flightFrom.y;
     const tx = this.flightTarget.x, ty = this.flightTarget.y;
 
-    // Quadratic bezier arc (mid-point pushed upward)
-    const midX = lerp(fx, tx, 0.5);
-    const midY = lerp(fy, ty, 0.5) - this.arcHeight;
+    // Bend across the route, not always toward the top of the screen.
+    const distance = Math.hypot(tx-fx,ty-fy) || 1;
+    const midX = lerp(fx, tx, 0.5) - (ty-fy)/distance * this.arcHeight;
+    const midY = lerp(fy, ty, 0.5) + (tx-fx)/distance * this.arcHeight;
 
     const prevX = this.x, prevY = this.y;
     this.x = (1-t)*(1-t)*fx + 2*(1-t)*t*midX + t*t*tx;
     this.y = (1-t)*(1-t)*fy + 2*(1-t)*t*midY + t*t*ty;
-    this.vel = { x: this.x - prevX, y: this.y - prevY };
+    this.vel = { x: (this.x - prevX)/Math.max(dt,0.001), y: (this.y - prevY)/Math.max(dt,0.001) };
 
     if (this.flightT >= 1) this._land(this.flightTarget);
   }
@@ -177,11 +184,7 @@ class Bird {
   _updateLeaving(dt) {
     this.x += this.vel.x * dt;
     this.y += this.vel.y * dt;
-    // Light air resistance — applied per 60-fps frame; raise to the dt power
-    // so total damping per wall-clock second is identical at any frame rate.
-    const damp = Math.pow(0.985, dt);
-    this.vel.x *= damp;
-    this.vel.y *= damp;
+    // Powered flight: do not exponentially brake departing birds to a hover.
     if (this.x < -140 || this.x > width  + 140 ||
         this.y < -140 || this.y > height + 140) {
       this.shouldRemove = true;
@@ -194,7 +197,8 @@ class Bird {
       this.perchTimer = floor(random(60, 180));
       return;
     }
-    const target = random(canopy.perchNodes);
+    const nearby = canopy.perchNodes.filter(p => Math.hypot(p.x-this.x,p.y-this.y) > 20 && Math.hypot(p.x-this.x,p.y-this.y) < 220);
+    const target = random(nearby.length ? nearby : canopy.perchNodes);
     this._startFlight(this.x, this.y, target, true);
   }
 
@@ -234,15 +238,19 @@ class Bird {
   }
 
   _drawFlying(alpha) {
-    const angle  = atan2(this.vel.y, this.vel.x);
+    if (Math.hypot(this.vel.x,this.vel.y) > 0.01) this.flightHeading = atan2(this.vel.y, this.vel.x);
+    const angle  = this.flightHeading;
     const s      = this.size;
-    const flap   = sin(this.flapPhase) * s * 0.42;
-    const wingSpan = s * 1.45;
-    const wingLift = s * 0.22 + flap;
+    const beat = sin(this.flapPhase);
+    // Foreshortening of the wings seen from below: tips really move, rather
+    // than leaving the span fixed and only wobbling the inner curve.
+    const wingSpan = s * (0.58 + 0.72 * (beat * 0.5 + 0.5));
+    const wingLift = s * (0.08 + 0.24 * cos(this.flapPhase));
 
     push();
     translate(this.x, this.y);
-    rotate(angle);
+    // This silhouette's head points along local -Y; velocity is an +X angle.
+    rotate(angle + HALF_PI);
     fill(8, 8, 8, alpha);
     noStroke();
 
@@ -260,6 +268,8 @@ class Bird {
     // Body ridge + tail notch.
     fill(14, 14, 14, alpha);
     ellipse(0, 0, s * 0.44, s * 0.70);
+    ellipse(0, -s * 0.36, s * 0.24, s * 0.28);
+    triangle(-s * 0.07, -s * 0.43, s * 0.07, -s * 0.43, 0, -s * 0.60);
     triangle(0, s * 0.14, -s * 0.16, s * 0.42, s * 0.16, s * 0.42);
 
     pop();
@@ -410,8 +420,8 @@ class Bat {
     const flap = sin(this.flapPhase) * this.size * 0.5;
     push();
     translate(this.pos.x, this.pos.y);
-    // Keep bats in underside view (looking up): avoid side-profile heading rotation.
-    rotate(sin(window._ncvAnimT * 0.011 + this.noiseOff) * 0.14);
+    // Underside view still has a heading: the head must lead the velocity.
+    rotate(atan2(this.vel.y,this.vel.x) + HALF_PI);
     fill(20, 0, 30, alpha);
     _drawBatWings(this.size, flap);
     pop();

@@ -1147,6 +1147,7 @@ class AtmosphereAudio {
 
     const master = constrain(env.soundMaster ?? 0.5, 0, 1);
     this.master.gain.setTargetAtTime(env.sleeping ? 0 : master * 0.75, now, 0.15);
+    window.NCV_CONVERSATIONS?.update(this);
 
     // ---- wind with gusts ----
     const windLvl = constrain(env.soundWind ?? 0.35, 0, 1);

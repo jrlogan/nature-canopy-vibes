@@ -153,6 +153,7 @@
     document.body.append(record);
     let status='Ambient';
     function report(text) {status=text;socket.emit('sky:status',{text});}
+    window.NCV_EXPERIENCES.report=report;
     socket.on('remote:command',payload=>{
       const command=payload?.command, data=payload?.data||{};
       if($('display-pair')) $('display-pair').hidden=true;
@@ -189,6 +190,6 @@
     window.addEventListener('ncv:state',({detail})=>{const key=[detail.liveLocationLat,detail.liveLocationLon,detail.simulationMode].join('|');if(previousScene && key!==previousScene){setMode('ambient');report('Ambient · scene changed');}previousScene=key;});
     setMode('ambient');
   }
-  window.NCV_EXPERIENCES={date,drawLaunch};
+  window.NCV_EXPERIENCES={date,drawLaunch,busy:()=>!!(audio && !audio.paused) || launchStart!==null || !!window.NCV_CAPE?.date()};
   window.addEventListener('load',init);
 })();

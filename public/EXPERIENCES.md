@@ -26,6 +26,25 @@ Ambient; select Live time to end time travel.
 
 ## Sources and limitations
 
+- Wildlife conversations are synthesized sketches, not species recordings or
+  claims of current wildlife presence. Daytime woodland birds / tropical bird
+  duets and temperate nighttime owl-like calls are selected conservatively;
+  automatic wolves require a location named Yellowstone. Treeless, polar and
+  storm settings suppress automatic exchanges. Phone previews intentionally
+  bypass habitat selection so users can audition each profile. Stereo callers
+  differ in pitch, level and timing, with 35–90 seconds between exchanges.
+  The audio clock is independent of accelerated sky time. Mute, sleep, hidden
+  pages, location/day-night changes and active experiences cancel queued calls.
+  The phone's conversation-level slider controls this layer separately.
+
+- Flying bird silhouettes face along their velocity (local head axis is -Y).
+  Movement and wingbeats use elapsed time, with distance-based arrival duration.
+  Powered departures no longer decay to a stationary hover. The renderer targets
+  60 fps, subject to device capability; adaptive canopy detail omits small
+  decorations under load. Rounded leaf outlines are cached without changing
+  branch reach or main cluster placement. Flock neighbor search keeps only seven
+  nearest entries rather than allocating and partially sorting full arrays.
+
 - The Cape replay uses three curated launches, not a full launch database:
   Apollo 11 (1969-07-16 13:32 UTC, pad 39A), STS-1 (1981-04-12
   12:00:03 UTC, pad 39A), and Artemis I (2022-11-16 06:47 UTC, minute

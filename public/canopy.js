@@ -1886,6 +1886,7 @@ class Canopy {
     if (!this._leafBuf || this._leafBuf.width !== bufW || this._leafBuf.height !== bufH) {
       if (this._leafBuf) this._leafBuf.remove();
       this._leafBuf = createGraphics(bufW, bufH);
+      this._leafBuf.pixelDensity(1);
       this._leafBuf.colorMode(RGB, 255, 255, 255, 255);
     }
 
@@ -2177,7 +2178,7 @@ class Canopy {
         const aBase = Math.min(255, Math.max(alphaBaseRaw, minAlpha, bigLeafFloor));
 
         // Thin connector twig keeps clump visually attached to supporting branch.
-        if (lf.stem) {
+        if (lf.stem && step === 1) {
           const stemA = aBase * (layer === 'back' ? 0.26 : 0.34) * lerp(0.45, 1, localGrow);
           const stemW = Math.max(0.7, Math.min(2.0, 0.55 + persp * 0.65));
           g.push();
@@ -2188,28 +2189,31 @@ class Canopy {
           g.pop();
         }
 
-        g.fill(lr, lg, lb, aBase);
-        g.push();
-        g.translate(cxp, cyp);
-        g.rotate(ba + lf.skew * 0.7);
-        g.beginShape();
-        const pts = [];
-        for (let k = 0; k < lf.polySides; k++) {
-          const t = (k / lf.polySides) * TWO_PI + lf.polyRot;
-          const n = 1 + Math.sin(t * 2.6 + lf.phase) * lf.polyNoise;
-          const px = Math.cos(t) * rx * n;
-          const py = Math.sin(t) * ry * (1 + Math.cos(t * 1.9 + lf.phase) * lf.polyNoise * 0.7);
-          pts.push([px, py]);
+        // Keep the same rounded outline, but compile it once. Rebuilding p5
+        // curveVertex arrays for every leaf on every frame was starving bird
+        // animation. Only the transform/colour changes as the canopy sways.
+        if (!lf._outlinePath) {
+          const pts=[];
+          for(let k=0;k<lf.polySides;k++) {
+            const t=k/lf.polySides*TWO_PI+lf.polyRot;
+            pts.push([Math.cos(t)*(1+Math.sin(t*2.6+lf.phase)*lf.polyNoise),
+              Math.sin(t)*(1+Math.cos(t*1.9+lf.phase)*lf.polyNoise*.7)]);
+          }
+          const path=new Path2D(),count=pts.length;
+          path.moveTo(...pts[0]);
+          for(let k=0;k<count;k++) {
+            const a=pts[(k+count-1)%count],b=pts[k],c=pts[(k+1)%count],d=pts[(k+2)%count];
+            path.bezierCurveTo(b[0]+(c[0]-a[0])/6,b[1]+(c[1]-a[1])/6,
+              c[0]-(d[0]-b[0])/6,c[1]-(d[1]-b[1])/6,c[0],c[1]);
+          }
+          path.closePath();lf._outlinePath=path;
         }
-        // Rounded polygon feel via curveVertex loop closure.
-        g.curveVertex(pts[pts.length - 1][0], pts[pts.length - 1][1]);
-        for (let k = 0; k < pts.length; k++) g.curveVertex(pts[k][0], pts[k][1]);
-        g.curveVertex(pts[0][0], pts[0][1]);
-        g.curveVertex(pts[1][0], pts[1][1]);
-        g.endShape(CLOSE);
-        g.pop();
+        const dc=g.drawingContext;
+        dc.save();dc.translate(cxp,cyp);dc.rotate(ba+lf.skew*.7);dc.scale(rx,ry);
+        dc.fillStyle=`rgba(${Math.round(lr)},${Math.round(lg)},${Math.round(lb)},${aBase/255})`;
+        dc.fill(lf._outlinePath);dc.restore();
 
-        if (tStyle.type === 'conifer') {
+        if (tStyle.type === 'conifer' && step === 1) {
           // Needle sprays to make conifers visually distinct at projection scale.
           g.push();
           g.stroke(lr * 0.7, lg * 0.85, lb * 0.68, aBase * 0.48);
@@ -2228,25 +2232,26 @@ class Canopy {
           const ovSway = Math.sin(ft * (0.0011 + lf.swaySpd * 0.35) + lf.phase) * 0.18;
           const ox = cxp + cosBa * rx * (lf.overlapDX + ovSway) + cosPa * ry * lf.overlapDY;
           const oy = cyp + sinBa * rx * (lf.overlapDX + ovSway) + sinPa * ry * lf.overlapDY;
-          g.fill(lr, lg, lb, aBase * (overlapFull ? Math.max(0.76, lf.overlapAlpha) : lf.overlapAlpha));
-          g.push();
-          g.translate(ox, oy);
-          g.rotate(ba + lf.skew * 0.6 + lf.overlapRot);
-          g.beginShape();
-          const s = Math.max(6, lf.polySides - 1);
           const rr = rx * lf.overlapScale;
-          for (let k = 0; k < s; k++) {
-            const t = (k / s) * TWO_PI + lf.polyRot * 0.7;
-            const n = 1 + Math.sin(t * 2.1 + lf.phase + 1.3) * lf.polyNoise * 0.8;
-            const sy = 0.82 + Math.sin(lf.seed * 0.02 + k * 1.9) * 0.18;
-            g.vertex(Math.cos(t) * rr * n, Math.sin(t) * rr * n * sy);
+          if (!lf._overlapPath) {
+            const path=new Path2D(),s=Math.max(6,lf.polySides-1);
+            for(let k=0;k<s;k++) {
+              const t=k/s*TWO_PI+lf.polyRot*.7,n=1+Math.sin(t*2.1+lf.phase+1.3)*lf.polyNoise*.8;
+              const sy=.82+Math.sin(lf.seed*.02+k*1.9)*.18;
+              if(k===0)path.moveTo(Math.cos(t)*n,Math.sin(t)*n*sy);
+              else path.lineTo(Math.cos(t)*n,Math.sin(t)*n*sy);
+            }
+            path.closePath();lf._overlapPath=path;
           }
-          g.endShape(CLOSE);
-          g.pop();
+          dc.save();dc.translate(ox,oy);dc.rotate(ba+lf.skew*.6+lf.overlapRot);dc.scale(rr,rr);
+          dc.fillStyle=`rgba(${Math.round(lr)},${Math.round(lg)},${Math.round(lb)},${aBase*(overlapFull?Math.max(.76,lf.overlapAlpha):lf.overlapAlpha)/255})`;
+          dc.fill(lf._overlapPath);dc.restore();
         }
 
         // Peppered secondary leaves around the clump.
-        for (let p = 0; p < lf.pepper.length; p++) {
+        // Preserve the main leaf clusters at every quality level; only fine
+        // subpixel decoration is omitted when the frame budget is tight.
+        for (let p = 0; step === 1 && p < lf.pepper.length; p++) {
           const pp = lf.pepper[p];
           const ps = Math.sin(ft * pp.swaySpd + pp.swayPhase) * pp.swayAmt;
           const px = cxp + pp.x * rx + cosBa * ps * 1.6;

@@ -313,6 +313,7 @@ const EnvironmentManager = {
   soundRain: 0.55,
   soundWind: 0.45,
   soundNightBirds: 0.25,
+  soundConversations: 0.3,
   liveTemperatureC: 16,
   liveWindKph: 10,
   liveSeasonLabel: '',
@@ -395,6 +396,7 @@ const EnvironmentManager = {
       soundRain: this.soundRain,
       soundWind: this.soundWind,
       soundNightBirds: this.soundNightBirds,
+      soundConversations: this.soundConversations,
       treeSkyOpen: this.treeSkyOpen,
       treeFrameDensity: this.treeFrameDensity,
       treeFoliageMass: this.treeFoliageMass,
@@ -466,7 +468,7 @@ function setup() {
   // ~half the CPU/GPU budget on Pi-class hardware. Subsystems use _ncvAnimDt
   // (set in draw()) to keep motion speed wall-clock-consistent at any frame
   // rate, so this cap doesn't slow animations down.
-  frameRate(30);
+  frameRate(60);
 
   starField    = new StarField();
   murmuration  = new MurmurationSystem();
@@ -521,15 +523,16 @@ function draw() {
   const fpsNow = frameRate();
   perfState.smoothFps = lerp(perfState.smoothFps, Number.isFinite(fpsNow) ? fpsNow : 30, 0.08);
   if (env.performanceMode === 'auto') {
-    // Targets reference the 30-fps cap set in setup(): drop when we miss the
-    // cap by more than ~3 fps, recover once we sit comfortably near it.
-    if (perfState.smoothFps < 26) perfState.qualityScale = max(0.52, perfState.qualityScale - 0.05);
-    else if (perfState.smoothFps > 29) perfState.qualityScale = min(1.0, perfState.qualityScale + 0.02);
+    // Aim for smooth 60 Hz motion; shed detail before sustained low frame rates.
+    if (perfState.smoothFps < 40) perfState.qualityScale = max(0.52, perfState.qualityScale - 0.02);
+    else if (perfState.smoothFps > 55) perfState.qualityScale = min(1.0, perfState.qualityScale + 0.01);
   } else {
     perfState.qualityScale = 1;
   }
   window._ncvQualityScale = perfState.qualityScale;
-  window._ncvIsStruggling = perfState.qualityScale < 0.82 || perfState.smoothFps < 25;
+  // Lower canopy detail is a recovery mechanism, not a reason to evict birds
+  // after the frame rate has recovered.
+  window._ncvIsStruggling = perfState.smoothFps < 25;
 
   background(skyColor());
   starField.updateCache();

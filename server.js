@@ -45,6 +45,7 @@ const environmentState = {
   soundRain: 0.55,
   soundWind: 0.45,
   soundNightBirds: 0.25,
+  soundConversations: 0.3,
   canopyCoverage: 0.34,
   canopyTreeCount: 0.92,
   canopyDensity: 0.9,
@@ -234,6 +235,7 @@ function applyRemoteEnvPatch(data = {}) {
   setNumeric('soundBirds', 0, 1);
   setNumeric('soundCrickets', 0, 1);
   setNumeric('soundNightBirds', 0, 1);
+  setNumeric('soundConversations', 0, 1);
   setNumeric('brightness', 0.05, 1);
   setNumeric('overlayRotationDeg', 0, 359, { round: true });
 
@@ -1074,6 +1076,9 @@ io.on('connection', (socket) => {
     if (!command) return;
 
     switch (command) {
+      case 'wildlife_preview':
+        if (!['birds','owls','wolves','tropical'].includes(data.profile)) return;
+        break;
       case 'sky_experience':
         if (!['ambient','explore','cape','cape_pause','apollo','apollo_pause','apollo_sky','voyager','launch','telescope','telescope_close','body','narration'].includes(data.action)) return;
         break;

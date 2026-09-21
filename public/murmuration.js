@@ -39,6 +39,7 @@ class _MurmBoid {
     this.x  = x;  this.y  = y;
     this.vx = vx; this.vy = vy;
     this.ax = 0;  this.ay = 0;
+    this.flapPhase = Math.random() * Math.PI * 2;
   }
 
   step() {
@@ -56,6 +57,7 @@ class _MurmBoid {
     }
     this.x += this.vx * dt;
     this.y += this.vy * dt;
+    this.flapPhase += 0.48 * dt;
     this.ax = 0;
     this.ay = 0;
   }
@@ -187,26 +189,25 @@ class _MurmSwarm {
     // Reduced separation radius (vs the old 22px) so interior birds can pack
     // more naturally — real murmurations have dense centres with heavy overlap.
     const sep2 = 15 * 15;
+    // Only retain K nearest neighbors: no N² short-lived objects or repeated
+    // full-array selection scans to collect seven neighbors.
+    const nearest = new Int32Array(K);
+    const distances = new Float64Array(K);
 
     for (let i = 0; i < n; i++) {
       const b = this.boids[i];
 
       // ---- Topological K-nearest (all layers — the flock is one 2D body) ----
-      const dists = new Array(n - 1);
-      let di = 0;
+      distances.fill(Infinity);
       for (let j = 0; j < n; j++) {
         if (j === i) continue;
         const dx = this.boids[j].x - b.x;
         const dy = this.boids[j].y - b.y;
-        dists[di++] = { j, d2: dx * dx + dy * dy };
-      }
-      // Partial insertion sort for first K entries (fast for small K).
-      for (let k = 0; k < K; k++) {
-        let minIdx = k;
-        for (let m = k + 1; m < dists.length; m++) {
-          if (dists[m].d2 < dists[minIdx].d2) minIdx = m;
-        }
-        if (minIdx !== k) { const tmp = dists[k]; dists[k] = dists[minIdx]; dists[minIdx] = tmp; }
+        const d2 = dx*dx+dy*dy;
+        if (d2 >= distances[K-1]) continue;
+        let k=K-1;
+        while(k>0 && d2<distances[k-1]) {distances[k]=distances[k-1];nearest[k]=nearest[k-1];k--;}
+        distances[k]=d2;nearest[k]=j;
       }
 
       // ---- Accumulate boid forces ----
@@ -215,8 +216,8 @@ class _MurmSwarm {
       let cohX = 0, cohY = 0;
 
       for (let k = 0; k < K; k++) {
-        const nb = this.boids[dists[k].j];
-        const d2 = dists[k].d2;
+        const nb = this.boids[nearest[k]];
+        const d2 = distances[k];
         const dx = b.x - nb.x;
         const dy = b.y - nb.y;
 
@@ -245,7 +246,7 @@ class _MurmSwarm {
 
       if (sepX !== 0 || sepY !== 0) steer(sepX, sepY, 1.55);
       if (aliVx !== 0 || aliVy !== 0) steer(aliVx, aliVy, 1.05);
-      steer(cohX / K - b.x, cohY / K - b.y, 0.85);
+      if (K) steer(cohX / K - b.x, cohY / K - b.y, 0.85);
 
       // ---- Attractor: keeps flock in the open sky zone ----
       const hx = this.atX - b.x;
@@ -295,14 +296,16 @@ class _MurmSwarm {
       const spd = Math.sqrt(boid.vx * boid.vx + boid.vy * boid.vy);
       if (spd < 0.05) continue;
       const ang = Math.atan2(boid.vy, boid.vx);
-      const w   = constrain(3.5 + (spd / _MURM_MAX_SPEED) * 3.0, 3.5, 6.5) * sc;
-      const h   = 1.8 * sc;
+      const w = 4 * sc;
+      const span = (2.2 + 2.2 * (0.5 + 0.5*Math.sin(boid.flapPhase))) * sc;
 
       dc.save();
       dc.translate(boid.x, boid.y);
       dc.rotate(ang);
       dc.beginPath();
-      dc.ellipse(0, 0, w, h, 0, 0, Math.PI * 2);
+      dc.moveTo(w,0);dc.lineTo(0,-sc);dc.lineTo(-w*.35,-span);
+      dc.lineTo(-w*.65,-sc);dc.lineTo(-w,0);dc.lineTo(-w*.65,sc);
+      dc.lineTo(-w*.35,span);dc.lineTo(0,sc);dc.closePath();
       dc.fill();
       dc.restore();
     }
@@ -493,7 +496,8 @@ class GooseMigrationSystem {
     for (const f of this.formations) {
       f.age += dt;
       f.x += f.speed * f.dir * dt;
-      f.y += sin(window._ncvAnimT * 0.008 + f.wobble) * 0.35;
+      f.vy = sin(window._ncvAnimT * 0.008 + f.wobble) * 0.35;
+      f.y += f.vy * dt;
     }
     this.formations = this.formations.filter((f) => {
       if (f.age > f.life) return false;
@@ -519,12 +523,15 @@ class GooseMigrationSystem {
         const by = f.y + dy + Math.sin(f.armAngle) * b.slot * 4;
         push();
         translate(bx, by);
-        rotate((f.dir > 0 ? 0 : PI) + b.side * 0.05);
+        rotate(Math.atan2(f.vy || 0,f.speed*f.dir));
+        const wing = 3 + 3 * (0.5 + 0.5 * Math.sin(window._ncvAnimT*.24+b.slot*.7+b.side));
         beginShape();
         vertex(-5, 0);
-        vertex(0, -1.8);
-        vertex(5, 0);
-        vertex(0, 1.6);
+        vertex(-2, -wing);
+        vertex(1, -1.2);
+        vertex(7, 0); // neck/head leads the flight
+        vertex(1, 1.2);
+        vertex(-2, wing);
         endShape(CLOSE);
         pop();
       }

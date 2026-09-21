@@ -22,5 +22,11 @@
   document.getElementById('remote-sky-body').onchange=e=>send('body',{body:e.target.value});
   document.getElementById('remote-narration').onchange=e=>send('narration',{value:e.target.checked});
   document.getElementById('remote-apollo-sky').onchange=e=>send('apollo_sky',{value:e.target.checked});
+  const wildlife=document.createElement('details');
+  wildlife.innerHTML='<summary>Wildlife conversations</summary><p>Quiet synthesized call-and-response sketches, not field recordings. Automatic choices follow location and day/night; wolves are automatic only in Yellowstone. Calls keep their natural playback speed during time travel.</p><label>Conversation level <input id="conversation-level" type="range" min="0" max="1" step="0.05" value="0.3"></label><p>Preview on display (tap the display once if audio is blocked):</p><div id="conversation-previews"></div>';
+  section.append(wildlife);
+  document.getElementById('conversation-level').onchange=e=>sendEnvPatch({soundConversations:Number(e.target.value)},'Wildlife conversation level');
+  for(const name of ['birds','owls','wolves','tropical']) {const b=document.createElement('button');b.textContent=name[0].toUpperCase()+name.slice(1);b.onclick=()=>sendCommand('wildlife_preview','Preview '+name,{profile:name});document.getElementById('conversation-previews').append(b);}
+  socket.on('env:sync',s=>{const slider=document.getElementById('conversation-level');if(document.activeElement!==slider && Number.isFinite(s.soundConversations))slider.value=s.soundConversations;});
   socket.on('sky:status',s=>{document.getElementById('remote-experience-status').textContent=String(s?.text||'');});
 })();
