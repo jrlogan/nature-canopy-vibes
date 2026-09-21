@@ -106,6 +106,8 @@ class StarField {
   }
 
   _dateAtEnvTime() {
+    // Journey mode carries a true UTC clock; use it directly.
+    if (env.journeyActive && Number.isFinite(env.journeyEpochMs)) return new Date(env.journeyEpochMs);
     const base = env.liveDateISO ? new Date(env.liveDateISO) : new Date();
     const d = Number.isFinite(base.getTime()) ? new Date(base.getTime()) : new Date();
     const hour = env.timeOfDay ?? 0;
@@ -306,6 +308,13 @@ class StarField {
   // Spherical projection: equatorial → screen
   // ----------------------------------------------------------
   _project(ra_deg, dec_deg, lst_deg, cx, cy, scale) {
+    // Catalog is J2000. Precess to the scene's epoch so a 2500 BC sky puts
+    // Thuban, not Polaris, near the pole. _renderJD is set per render.
+    if (this._renderJD) {
+      const p = NCV_SKY.precess(ra_deg, dec_deg, this._renderJD);
+      ra_deg = p.ra;
+      dec_deg = p.dec;
+    }
     const lat = this.lat * (Math.PI / 180);
     const dec = dec_deg  * (Math.PI / 180);
     const H   = ((lst_deg - ra_deg + 360) % 360) * (Math.PI / 180);
@@ -335,11 +344,7 @@ class StarField {
   }
 
   _starAlpha() {
-    const t = env.timeOfDay;
-    if (t < 5.0 || t > 21.0) return 1.0;
-    if (t < 6.2)  return 1 - (t - 5.0) / 1.2;
-    if (t > 19.8) return (t - 19.8) / 1.2;
-    return 0;
+    return NCV_SKY.phase().starK;
   }
 
   // ----------------------------------------------------------
@@ -457,7 +462,7 @@ class StarField {
   }
 
   isNight() {
-    return env.timeOfDay < this.nightThreshold.end || env.timeOfDay > this.nightThreshold.start;
+    return NCV_SKY.phase().starK > 0.01;
   }
 
   updateCache() {
@@ -469,6 +474,7 @@ class StarField {
       (env.showConstellations ?? window._ncvShowConstellations) ? '1' : '0',
       env.showConstellationLabels ? '1' : '0',
       Number(env.skyAzimuthOffsetDeg || 0).toFixed(1),
+      String(this._dateAtEnvTime().getUTCFullYear()),
     ].join('|');
     if (this.wasNight === null) this.wasNight = nowNight;
     if (configStamp !== this.lastConfigStamp) {
@@ -479,6 +485,17 @@ class StarField {
     if (nowNight !== this.wasNight) {
       this.wasNight = nowNight;
       if (nowNight) this.cacheDirty = true;
+    }
+
+    // Re-project when the sky has actually turned (sidereal time moved by more
+    // than ~a quarter degree). At real time that is about once a minute; in
+    // journey mode at an hour per second it is every few frames, which is why
+    // the render is also rate-limited.
+    if (nowNight && !this.cacheDirty) {
+      const lst = this._getLST();
+      const prev = this.lastRenderLST;
+      const dl = prev === undefined ? 999 : Math.abs(((lst - prev + 540) % 360) - 180);
+      if (dl > 0.25 && millis() - (this.lastRenderAt || 0) > 120) this.cacheDirty = true;
     }
 
     if (nowNight && this.cacheDirty) this._renderNightBuffer();
@@ -495,6 +512,9 @@ class StarField {
     const alpha = nightAlpha * sMul;
     const gfx   = this.nightBuffer;
     const lst   = this._getLST();
+    this._renderJD = this._julianDay(this._dateAtEnvTime());
+    this.lastRenderLST = lst;
+    this.lastRenderAt = millis();
     const cx    = width / 2;
     const cy    = height / 2;
     const scale = min(width, height) * 0.5;

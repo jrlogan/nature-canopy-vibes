@@ -30,6 +30,33 @@ const infoWindEl = document.getElementById('info-wind');
 const infoCloudEl = document.getElementById('info-cloud');
 const infoRainEl = document.getElementById('info-rain');
 
+// Journey panel
+const jn = {
+  time: document.getElementById('jn-time'),
+  date: document.getElementById('jn-date'),
+  where: document.getElementById('jn-where'),
+  rate: document.getElementById('jn-rate'),
+  toggle: document.getElementById('jn-toggle'),
+  now: document.getElementById('jn-now'),
+  stop: document.getElementById('jn-stop'),
+  rateBtns: Array.from(document.querySelectorAll('.jn-rate')),
+  scrubBtns: Array.from(document.querySelectorAll('.jn-scrub')),
+  year: document.getElementById('jn-year'),
+  month: document.getElementById('jn-month'),
+  day: document.getElementById('jn-day'),
+  hour: document.getElementById('jn-hour'),
+  label: document.getElementById('jn-label'),
+  goDate: document.getElementById('jn-go-date'),
+  destCard: document.getElementById('jn-dest-card'),
+  dests: document.getElementById('jn-dests'),
+  clock: document.getElementById('jn-clock'),
+  map: document.getElementById('jn-map'),
+  rot: document.getElementById('jn-rot'),
+  dual: document.getElementById('jn-dual'),
+  scene: document.getElementById('jn-scene'),
+  weatherAuto: document.getElementById('jn-weather-auto'),
+};
+
 let skyLabelsOn = false;
 let compassOn = false;
 let compassOffsetDeg = 0;
@@ -163,7 +190,131 @@ const controls = {
     fmt: (v) => (Number(v) || 0).toFixed(2),
     parse: (v) => clampRange(v, 0, 1),
   },
+  brightness: {
+    slider: document.getElementById('bright-slider'),
+    readout: document.getElementById('bright-readout'),
+    fmt: (v) => (Number(v) || 0).toFixed(2),
+    parse: (v) => clampRange(v, 0.05, 1),
+  },
 };
+
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function journeyRateText(rate) {
+  const r = Number(rate) || 0;
+  if (r === 0) return 'Paused';
+  const a = Math.abs(r);
+  let unit;
+  if (a < 30) unit = a === 1 ? 'real time' : `${a}×`;
+  else if (a < 1800) unit = `${Math.round(a / 60)} min per second`;
+  else if (a < 43200) unit = `${Math.round(a / 3600)} hour per second`;
+  else unit = `${Math.round(a / 86400)} day per second`;
+  return (r < 0 ? 'Rewinding, ' : 'Playing, ') + unit;
+}
+
+function updateJourneyPanel(state = {}) {
+  if (!jn.time) return;
+  const active = !!state.journeyActive;
+  const d = new Date(state.liveDateISO || Date.now());
+  const ok = Number.isFinite(d.getTime());
+  const y = ok ? d.getUTCFullYear() : NaN;
+  const yearLabel = y > 0 ? String(y) : `${1 - y} BC`;
+  jn.time.textContent = fmtClock(Number(state.timeOfDay));
+  jn.date.textContent = ok ? `${d.getUTCDate()} ${MONTHS_SHORT[d.getUTCMonth()]} ${yearLabel}` : '--';
+  jn.where.textContent = state.journeyLabel || state.liveLocationName || '--';
+  const src = state.journeyWeatherSource;
+  const srcTxt = !active ? '' : (src === 'archive' || src === 'forecast' ? ' · real weather for this day'
+    : (src === 'hold' ? ' · weather held' : ' · modelled weather'));
+  jn.rate.textContent = active ? journeyRateText(state.journeyRate) + srcTxt : 'Journey off — following live weather';
+  const rate = Number(state.journeyRate) || 0;
+  jn.toggle.textContent = active && rate !== 0 ? 'Pause' : 'Play';
+  jn.toggle.classList.toggle('on', active && rate !== 0);
+  jn.rateBtns.forEach((b) => b.classList.toggle('active', active && Number(b.dataset.rate) === rate));
+  jn.clock.textContent = `Clock On Ceiling: ${state.showClock ? 'ON' : 'OFF'}`;
+  jn.clock.classList.toggle('on', !!state.showClock);
+  if (typeof state.showMap === 'string') jn.map.value = state.showMap;
+  if (Number.isFinite(state.overlayRotationDeg)) {
+    const snapped = String(Math.round(state.overlayRotationDeg / 90) * 90 % 360);
+    jn.rot.value = snapped;
+  }
+  jn.dual.textContent = `Mirror Text 180°: ${state.overlayDual ? 'ON' : 'OFF'}`;
+  jn.dual.classList.toggle('on', !!state.overlayDual);
+  if (typeof state.sceneAudio === 'string') {
+    const opt = Array.from(jn.scene.options).find((o) => o.value === state.sceneAudio);
+    jn.scene.value = opt ? state.sceneAudio : '';
+  }
+  jn.weatherAuto.style.display = active && state.journeyWeatherHold ? '' : 'none';
+  Array.from(jn.dests.querySelectorAll('.jn-dest')).forEach((b) => {
+    b.classList.toggle('active', active && !!state.journeyLabel && b.dataset.label === state.journeyLabel);
+  });
+}
+
+function initJourneyPanel() {
+  if (!jn.time) return;
+  jn.toggle.addEventListener('click', () => sendCommand('journey_toggle', 'Journey play/pause'));
+  jn.now.addEventListener('click', () => sendCommand('journey_now', 'Journey → now'));
+  jn.stop.addEventListener('click', () => sendCommand('journey_stop', 'Journey off, back to live'));
+  jn.rateBtns.forEach((b) => b.addEventListener('click', () => {
+    const rate = Number(b.dataset.rate);
+    sendCommand('journey_set_rate', `Speed: ${journeyRateText(rate)}`, { rate });
+  }));
+  jn.scrubBtns.forEach((b) => b.addEventListener('click', () => {
+    const sec = Number(b.dataset.sec);
+    sendCommand('journey_scrub', `Nudge ${sec > 0 ? '+' : ''}${sec / 3600} h`, { sec });
+  }));
+  jn.goDate.addEventListener('click', () => {
+    const year = Number(jn.year.value);
+    if (!Number.isFinite(year)) { setLog('Enter a year (negative for BC)'); return; }
+    const payload = {
+      epoch: {
+        year,
+        month: Number(jn.month.value) || 1,
+        day: Number(jn.day.value) || 1,
+        hour: jn.hour.value === '' ? 12 : Number(jn.hour.value),
+      },
+      label: String(jn.label.value || '').trim(),
+      rate: 1,
+    };
+    sendCommand('journey_set_epoch', `Journey → ${payload.epoch.day}/${payload.epoch.month}/${year}`, payload);
+  });
+  jn.clock.addEventListener('click', () => sendEnvPatch({ showClock: !latestState.showClock }, 'Clock'));
+  jn.map.addEventListener('change', () => sendEnvPatch({ showMap: jn.map.value }, `Map ${jn.map.value}`));
+  jn.rot.addEventListener('change', () => sendEnvPatch({ overlayRotationDeg: Number(jn.rot.value) }, `Text rotation ${jn.rot.value}°`));
+  jn.dual.addEventListener('click', () => sendEnvPatch({ overlayDual: !latestState.overlayDual }, 'Mirror text'));
+  jn.scene.addEventListener('change', () => sendEnvPatch({ sceneAudio: jn.scene.value }, `Scene sound: ${jn.scene.value || 'none'}`));
+  jn.weatherAuto.addEventListener('click', () => sendCommand('journey_weather_auto', 'Weather follows journey'));
+
+  // Destinations are server-defined; static hosting has none.
+  fetch('journey/destinations').then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then((list) => {
+    jn.dests.innerHTML = '';
+    for (const d of list) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'city-btn jn-dest';
+      b.dataset.id = d.id;
+      b.dataset.label = d.label || d.name;
+      b.innerHTML = `${escapeHtml(d.label || d.name)}<small>${escapeHtml(d.name)}</small>`;
+      b.addEventListener('click', () => sendCommand('journey_goto', `Journey → ${d.label || d.name}`, { id: d.id }));
+      jn.dests.appendChild(b);
+    }
+  }).catch(() => {
+    // Static hosting (GitHub Pages): no server clock, so hide the journey
+    // controls but keep the Room card, which the standalone shim understands.
+    const row = document.getElementById('journey-row');
+    if (!row) return;
+    const roomCard = jn.clock ? jn.clock.closest('.adv-card') : null;
+    Array.from(row.children).forEach((el) => {
+      if (el === roomCard) return;
+      if (el.classList && el.classList.contains('section-title')) { el.textContent = 'Room'; return; }
+      el.style.display = 'none';
+    });
+    if (roomCard) roomCard.querySelector('#jn-scene').style.display = '';
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 function clampRange(v, min, max) {
   const n = Number(v);
@@ -449,6 +600,7 @@ socket.on('env:sync', (state) => {
   Object.keys(controls).forEach((key) => {
     if (state[key] !== undefined) syncControlValue(key, state[key]);
   });
+  updateJourneyPanel(state);
 
   const hour = Number.isFinite(state.timeOfDay) ? state.timeOfDay.toFixed(1) : 'n/a';
   const loc = state.liveLocationName || 'Unknown';
@@ -564,6 +716,8 @@ bindSliderPatch('soundThunder', 'Audio Thunder');
 bindSliderPatch('soundBirds', 'Audio Birds');
 bindSliderPatch('soundCrickets', 'Audio Crickets');
 bindSliderPatch('soundNightBirds', 'Audio Night Birds');
+bindSliderPatch('brightness', 'Brightness');
+initJourneyPanel();
 
 if (copyRoomInputEl) {
   const savedRoom = (() => {

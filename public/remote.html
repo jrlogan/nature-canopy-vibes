@@ -236,6 +236,39 @@
       font-size: 0.86rem;
     }
 
+    .jn-status {
+      display: grid;
+      gap: 4px;
+      font-size: 0.95rem;
+      color: #a7bfd4;
+    }
+    .jn-status b { color: #eff7ff; }
+    .jn-status .jn-time { font-size: 1.5rem; font-weight: 700; color: #ecf6ff; letter-spacing: 0.02em; }
+    .jn-grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .jn-grid-4 button, .jn-grid-3 button { min-height: 44px; font-size: 0.9rem; padding: 8px 6px; }
+    .jn-grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .jn-rate.active, #jn-toggle.on, #jn-clock.on, #jn-dual.on {
+      border-color: rgba(118, 226, 163, 0.9);
+      color: #e9fff0;
+      box-shadow: 0 0 0 1px rgba(118, 226, 163, 0.4) inset;
+    }
+    .jn-dest { min-height: 52px; font-size: 0.9rem; text-align: left; line-height: 1.25; }
+    .jn-dest small { display: block; color: #9bb6cc; font-weight: 500; font-size: 0.78rem; }
+    .jn-dest.active {
+      border-color: rgba(118, 226, 163, 0.9);
+      color: #e9fff0;
+      box-shadow: 0 0 0 1px rgba(118, 226, 163, 0.4) inset;
+    }
+    .jn-hint { color: var(--muted); font-size: 0.8rem; margin: 4px 0 0; }
+
     @media (max-width: 520px) {
       .city-grid {
         grid-template-columns: 1fr;
@@ -290,6 +323,94 @@
             <div class="info-item"><span>Wind</span><b id="info-wind">--</b></div>
             <div class="info-item"><span>Cloud</span><b id="info-cloud">--</b></div>
             <div class="info-item"><span>Precipitation</span><b id="info-rain">--</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" id="journey-row" style="margin-top: 20px;">
+        <p class="section-title">Journey Through Time</p>
+        <div class="info-card" style="margin-top:0;">
+          <div class="jn-status">
+            <div class="jn-time" id="jn-time">--:--</div>
+            <div id="jn-date">Journey off — the scene follows live weather</div>
+            <div id="jn-where">--</div>
+            <div id="jn-rate">--</div>
+          </div>
+        </div>
+        <div class="jn-grid-3" style="margin-top:8px;">
+          <button id="jn-toggle" type="button">Play</button>
+          <button id="jn-now" type="button">Now</button>
+          <button id="jn-stop" type="button">Exit Journey</button>
+        </div>
+        <p class="adv-title" style="margin:10px 0 4px;">Speed</p>
+        <div class="jn-grid-4">
+          <button class="jn-rate" data-rate="-86400" type="button">◀ Day/s</button>
+          <button class="jn-rate" data-rate="-3600" type="button">◀ Hour/s</button>
+          <button class="jn-rate" data-rate="-60" type="button">◀ Min/s</button>
+          <button class="jn-rate" data-rate="-1" type="button">◀ Real</button>
+          <button class="jn-rate" data-rate="1" type="button">Real ▶</button>
+          <button class="jn-rate" data-rate="60" type="button">Min/s ▶</button>
+          <button class="jn-rate" data-rate="3600" type="button">Hour/s ▶</button>
+          <button class="jn-rate" data-rate="86400" type="button">Day/s ▶</button>
+        </div>
+        <p class="adv-title" style="margin:10px 0 4px;">Nudge</p>
+        <div class="jn-grid-4">
+          <button class="jn-scrub" data-sec="-86400" type="button">−1 day</button>
+          <button class="jn-scrub" data-sec="-3600" type="button">−1 hr</button>
+          <button class="jn-scrub" data-sec="3600" type="button">+1 hr</button>
+          <button class="jn-scrub" data-sec="86400" type="button">+1 day</button>
+        </div>
+
+        <div class="adv-card" style="margin-top:10px;">
+          <p class="adv-title">Go To A Date</p>
+          <div class="jn-grid-4">
+            <input id="jn-year" class="adv-input" type="number" placeholder="Year" step="1" />
+            <input id="jn-month" class="adv-input" type="number" placeholder="Month" min="1" max="12" step="1" />
+            <input id="jn-day" class="adv-input" type="number" placeholder="Day" min="1" max="31" step="1" />
+            <input id="jn-hour" class="adv-input" type="number" placeholder="Hour" min="0" max="23" step="1" />
+          </div>
+          <div class="adv-grid-2" style="margin-top:8px;">
+            <input id="jn-label" class="adv-input" type="text" placeholder="Label (e.g. Maya's birthday)" maxlength="60" />
+            <button id="jn-go-date" type="button">Go</button>
+          </div>
+          <p class="jn-hint">Local time at the current place. Negative year = BC. Dates from 1940 on get that day's real weather.</p>
+        </div>
+
+        <div class="adv-card" id="jn-dest-card" style="margin-top:10px;">
+          <p class="adv-title">Destinations</p>
+          <div id="jn-dests" class="city-grid"></div>
+        </div>
+
+        <div class="adv-card" style="margin-top:10px;">
+          <p class="adv-title">Room</p>
+          <div class="adv-row">
+            <div class="adv-label"><span>Brightness</span><b id="bright-readout">1.00</b></div>
+            <input id="bright-slider" class="advanced-slider" type="range" min="0.05" max="1" step="0.01" value="1" />
+          </div>
+          <div class="adv-grid-2">
+            <button id="jn-clock" type="button">Clock On Ceiling: OFF</button>
+            <select id="jn-map" class="adv-select">
+              <option value="off">Map: Off</option>
+              <option value="auto" selected>Map: On Location Change</option>
+              <option value="always">Map: Always</option>
+            </select>
+          </div>
+          <div class="adv-grid-2" style="margin-top:8px;">
+            <select id="jn-rot" class="adv-select">
+              <option value="0">Text faces: wall A (0°)</option>
+              <option value="90">Text faces: wall B (90°)</option>
+              <option value="180">Text faces: wall C (180°)</option>
+              <option value="270">Text faces: wall D (270°)</option>
+            </select>
+            <button id="jn-dual" type="button">Mirror Text 180°: OFF</button>
+          </div>
+          <div class="adv-grid-2" style="margin-top:8px;">
+            <select id="jn-scene" class="adv-select">
+              <option value="">Scene sound: none</option>
+              <option value="fire">Scene sound: campfire</option>
+              <option value="drone">Scene sound: distant chant</option>
+            </select>
+            <button id="jn-weather-auto" type="button">Weather: Follow Journey</button>
           </div>
         </div>
       </div>

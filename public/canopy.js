@@ -1394,10 +1394,10 @@ class Canopy {
     }
 
   _drawPalmFrondsBack() {
-      const tod = env.timeOfDay;
-      const isNight = tod < 6.5 || tod > 20.5;
-      const isTwilight = (tod >= 5.5 && tod < 7) || (tod > 19 && tod < 21);
-      const sun = (!isNight && !isTwilight) ? (1 - abs(tod - 13) / 7) : 0;
+      const sky = NCV_SKY.phase();
+      const isNight = sky.isNight;
+      const isTwilight = sky.isTwilight;
+      const sun = sky.sunK;
       const flashK = constrain((window._ncvFlashAlpha || 0) / 255, 0, 1);
       const ft = window._ncvAnimT;
       for (const root of this.trees) {
@@ -1586,11 +1586,11 @@ class Canopy {
       const lushTopBoost = Math.pow(constrain((lushNorm - 0.86) / 0.14, 0, 1), 1.15)
         + Math.pow(constrain((lush - 1.0) / 0.5, 0, 1), 1.10) * 0.75;
       const lushVisual = lushLive * (1 + lushTopBoost * 0.32);
+      const sky        = NCV_SKY.phase();
       const tod        = env.timeOfDay;
-      const isNight    = tod < 6.5 || tod > 20.5;
-      const isTwilight = (tod >= 5.5 && tod < 7) || (tod > 19 && tod < 21);
-      const isDawn     = tod < 13;
-      const sun        = (!isNight && !isTwilight) ? (1 - Math.abs(tod - 13) / 7) : 0;
+      const isNight    = sky.isNight;
+      const isTwilight = sky.isTwilight;
+      const sun        = sky.sunK;
       const flashK     = constrain((window._ncvFlashAlpha || 0) / 255, 0, 1);
 
       // Same base palette as tree leaves, slightly darkened so edge reads as behind.
@@ -1598,10 +1598,10 @@ class Canopy {
       if (isNight) {
         br = 3; bg = 8; bb = 4;
       } else if (isTwilight) {
-        const frac = isDawn ? (tod - 5.5) / 1.5 : (21 - tod) / 2;
-        br = lerp(132, 42, frac);
-        bg = lerp(104, 82, frac);
-        bb = lerp(34, 18, frac);
+        const k = sky.twilightK; // 0 night side → 1 day side
+        br = lerp(42, 132, k);
+        bg = lerp(82, 104, k);
+        bb = lerp(18, 34, k);
       } else {
         br = 24 + sun * 22;
         bg = 68 + sun * 46;
@@ -1609,7 +1609,7 @@ class Canopy {
       }
 
       // Quantized key prevents per-frame cache churn while preserving smooth updates.
-      const todBucket = Math.round(tod * 5) / 5; // 0.2h buckets
+      const todBucket = Math.round(sky.alt * 2) / 2; // half-degree sun-altitude buckets
       br = br * season.cR * (isNight ? 0.68 : 0.74);
       bg = bg * season.cG * (isNight ? 0.72 : 0.78);
       bb = bb * season.cB * (isNight ? 0.70 : 0.76);
@@ -1714,7 +1714,7 @@ class Canopy {
       const my    = (node.startY + node.endY) * 0.5;
       const persp = this._perspectiveScale(mx, my);
 
-      const isNight = env.timeOfDay < 6.5 || env.timeOfDay > 20.5;
+      const isNight = NCV_SKY.phase().isNight;
       const flashK  = constrain((window._ncvFlashAlpha || 0) / 255, 0, 1);
       let fr, fg, fb;
       if (isNight) {
@@ -1867,12 +1867,12 @@ class Canopy {
     const occluders = hasOcc ? rawOcc.slice(0, Math.max(2, Math.floor(10 * q))) : [];
 
     // Time-of-day state — identical for every leaf this frame.
+    const sky        = NCV_SKY.phase();
     const tod        = env.timeOfDay;
     const season     = this._seasonProfile();
-    const isNight    = tod < 6.5 || tod > 20.5;
-    const isTwilight = (tod >= 5.5 && tod < 7) || (tod > 19 && tod < 21);
-    const isDawn     = tod < 13;
-    const sun        = (!isNight && !isTwilight) ? (1 - abs(tod - 13) / 7) : 0;
+    const isNight    = sky.isNight;
+    const isTwilight = sky.isTwilight;
+    const sun        = sky.sunK;
     const flashK     = constrain((window._ncvFlashAlpha || 0) / 255, 0, 1);
     const ft         = window._ncvAnimT;
 
@@ -1894,11 +1894,11 @@ class Canopy {
       // Night canopy should read as a dense dark silhouette, not fade away.
       br = 3; bg = 8; bb = 4; ba = 255;
     } else if (isTwilight) {
-      const frac = isDawn ? (tod - 5.5) / 1.5 : (21 - tod) / 2;
+      const k = sky.twilightK; // 0 night side → 1 day side
       // Keep foliage clearly visible at dawn/dusk while still warm-toned.
-      br = lerp(132, 42, frac);
-      bg = lerp(104, 82, frac);
-      bb = lerp(34, 18, frac);
+      br = lerp(42, 132, k);
+      bg = lerp(82, 104, k);
+      bb = lerp(18, 34, k);
       ba = 238;
     } else {
       br = 24 + sun * 22;

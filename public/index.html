@@ -70,6 +70,8 @@
   <!-- PeerJS and QRCode for standalone WebRTC + QR overlay -->
   <script src="vendor/peerjs.min.js"></script>
   <script src="vendor/qrcode.min.js"></script>
+  <!-- World coastlines for the journey map overlay (public domain, ~20 KB) -->
+  <script src="vendor/world-land.js"></script>
 
   <!-- 2. Project config — Supabase credentials for cross-device remote control.
        No SDK needed: standalone.js uses raw WebSocket to Supabase Realtime. -->
@@ -84,6 +86,7 @@
   <script src="/socket.io/socket.io.js"></script>
 
   <!-- 4. Visual subsystems (order matters: each builds on the previous) -->
+  <script src="solar.js"></script>
   <script src="stars.js"></script>
   <script src="murmuration.js"></script>
   <script src="canopy.js"></script>

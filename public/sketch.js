@@ -70,6 +70,23 @@ function parseStartupEnvOverrides() {
   const weather = String(startupUrlParams.get('weather') || '').toLowerCase();
   if (['clear', 'rain', 'storm'].includes(weather)) out.currentWeather = weather;
 
+  // Room / presentation controls.
+  const bright = readNum('bright', 0.05, 1);
+  const rot = readNum('rot', 0, 359, true);
+  if (bright !== undefined) out.brightness = bright;
+  if (rot !== undefined) out.overlayRotationDeg = rot;
+  const readFlag = (key) => {
+    const raw = startupUrlParams.get(key);
+    if (raw === null) return undefined;
+    return ['1', 'true', 'yes', 'on'].includes(String(raw).toLowerCase());
+  };
+  const clock = readFlag('clock');
+  const dual = readFlag('dual');
+  if (clock !== undefined) out.showClock = clock;
+  if (dual !== undefined) out.overlayDual = dual;
+  const mapMode = String(startupUrlParams.get('map') || '').toLowerCase();
+  if (['off', 'auto', 'always'].includes(mapMode)) out.showMap = mapMode;
+
   const season = String(startupUrlParams.get('season') || '').toLowerCase();
   if (['auto', 'spring', 'summer', 'fall', 'winter'].includes(season)) out.season = season;
 
@@ -116,10 +133,20 @@ socket.on('env:sync', (state) => {
   const prevConstLabels = !!env.showConstellationLabels;
   const prevPlantLabels = !!env.showPlantLabels;
   const prevSkyOffset = Number(env.skyAzimuthOffsetDeg) || 0;
-  const prevLoc = `${env.liveLocationLat ?? ''},${env.liveLocationLon ?? ''},${env.liveDateISO ?? ''}`;
+  const prevLat = env.liveLocationLat, prevLon = env.liveLocationLon;
+  const prevLoc = `${env.liveLocationLat ?? ''},${env.liveLocationLon ?? ''}`;
+  const prevDate = env.liveDateISO;
+  const prevClientEpoch = env.journeyEpochMs;
   env.apply(state);
   window._ncvShowConstellations = !!env.showConstellations;
-  const nextLoc = `${env.liveLocationLat ?? ''},${env.liveLocationLon ?? ''},${env.liveDateISO ?? ''}`;
+  // The client extrapolates the journey clock every frame (see draw()). Only
+  // accept the server's stamp when it disagrees by more than a sync interval,
+  // otherwise the 1 Hz correction would make the sky stutter.
+  if (env.journeyActive && Number.isFinite(prevClientEpoch) && Number.isFinite(env.journeyEpochMs)) {
+    const tol = Math.abs(Number(env.journeyRate) || 0) * 1500 + 2000;
+    if (Math.abs(env.journeyEpochMs - prevClientEpoch) < tol) env.journeyEpochMs = prevClientEpoch;
+  }
+  const nextLoc = `${env.liveLocationLat ?? ''},${env.liveLocationLon ?? ''}`;
   if (prevTreeCount !== env.treeFrameDensity) {
     window._ncvUpdateTreeCount && _ncvUpdateTreeCount();
   }
@@ -141,9 +168,16 @@ socket.on('env:sync', (state) => {
     window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
   }
   if (prevLoc !== nextLoc) {
-    if (window._ncvDidFirstSync) window._ncvBeginLocationTransition && _ncvBeginLocationTransition();
+    if (window._ncvDidFirstSync) {
+      window._ncvBeginLocationTransition && _ncvBeginLocationTransition();
+      journeyMap.onLocationChange(prevLat, prevLon);
+    }
     window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
     window._ncvRebuildCanopy && _ncvRebuildCanopy();
+  } else if (prevDate !== env.liveDateISO) {
+    // Date moved (live tick or journey): stars must re-project. The canopy
+    // reads the date every frame for its season, so no rebuild.
+    window._ncvInvalidateSkyCache && _ncvInvalidateSkyCache();
   }
   window._ncvDidFirstSync = true;
   window._ncvSyncPanel && _ncvSyncPanel();
@@ -276,6 +310,25 @@ const EnvironmentManager = {
   soundRain: 0.55,
   soundWind: 0.45,
   soundNightBirds: 0.25,
+  liveTemperatureC: 16,
+  liveWindKph: 10,
+  liveSeasonLabel: '',
+
+  // Room / presentation (see CLAUDE.md)
+  brightness: 1.0,
+  overlayRotationDeg: 0,
+  overlayDual: false,
+  showClock: false,
+  showMap: 'auto',
+  sceneAudio: '',
+
+  // Journey mode (server-owned clock; extrapolated locally in draw())
+  journeyActive: false,
+  journeyRate: 0,
+  journeyEpochMs: Date.now(),
+  journeySyncAtMs: 0,
+  journeyLabel: '',
+  journeyWeatherSource: 'model',
 
   // Tree configuration — changes take effect after canopy.rebuild()
   treeSkyOpen: 1.10,      // 1.0–1.5: open sky in center
@@ -442,6 +495,21 @@ function draw() {
   window._ncvAnimDt = Math.min(_dtMs / (1000 / 60), 4);
   window._ncvAnimT  = (window._ncvAnimT || 0) + window._ncvAnimDt;
 
+  // Journey clock: advance locally between server syncs so the sky, clock and
+  // season move smoothly at any rate (the server corrects us at 1 Hz).
+  if (env.journeyActive) {
+    const rate = Number(env.journeyRate) || 0;
+    if (rate !== 0 && Number.isFinite(env.journeyEpochMs)) {
+      env.journeyEpochMs += rate * _dtMs;
+      const lon = Number(env.liveLocationLon) || 0;
+      const local = env.journeyEpochMs + lon * 240000;
+      const dayMs = ((local % 86400000) + 86400000) % 86400000;
+      env.timeOfDay = dayMs / 3600000;
+      const d = new Date(local);
+      if (Number.isFinite(d.getTime())) env.liveDateISO = d.toISOString();
+    }
+  }
+
   const fpsNow = frameRate();
   perfState.smoothFps = lerp(perfState.smoothFps, Number.isFinite(fpsNow) ? fpsNow : 30, 0.08);
   if (env.performanceMode === 'auto') {
@@ -480,7 +548,9 @@ function draw() {
   drawCompassDirectionsOverlay();
   drawProjectionEdgeFade();
   drawLocationTransitionOverlay();
+  drawJourneyHud();
   drawSleepOverlay();
+  drawBrightnessDimmer();
 
   // Check if QR code should be generated for the overlay
   handleQROverlay();
@@ -781,8 +851,37 @@ function rebuildProjectionEdgeMask() {
 // ----------------------------------------------------------
 // Keyboard shortcuts
 // ----------------------------------------------------------
+// Keys double as the "scrubber in the room": any USB knob that emits arrow
+// keys (a Pico/Arduino HID sketch, a PowerMate, a volume-knob HID) works.
+const JOURNEY_RATE_STEPS = [-86400, -3600, -60, -1, 0, 1, 60, 3600, 86400];
+function sendRemote(command, data = {}) {
+  if (socket && socket.emit) socket.emit('remote:command', { command, data });
+}
+function journeyStepRate(dir) {
+  const cur = env.journeyActive ? (Number(env.journeyRate) || 0) : 0;
+  let idx = 0, best = Infinity;
+  JOURNEY_RATE_STEPS.forEach((r, i) => { const d = Math.abs(r - cur); if (d < best) { best = d; idx = i; } });
+  idx = constrain(idx + dir, 0, JOURNEY_RATE_STEPS.length - 1);
+  sendRemote('journey_set_rate', { rate: JOURNEY_RATE_STEPS[idx] });
+}
 function keyPressed() {
-  if      (key === ' ')              { env.randomise(); window._ncvSyncPanel && _ncvSyncPanel(); }
+  const shift = keyIsDown(SHIFT);
+  if (keyCode === LEFT_ARROW)  { sendRemote('journey_scrub', { sec: shift ? -3600 : -600 }); return false; }
+  if (keyCode === RIGHT_ARROW) { sendRemote('journey_scrub', { sec: shift ?  3600 :  600 }); return false; }
+  if (keyCode === UP_ARROW)    { journeyStepRate(+1); return false; }
+  if (keyCode === DOWN_ARROW)  { journeyStepRate(-1); return false; }
+  if      (key === ' ')              { sendRemote('journey_toggle'); return false; }
+  else if (key === 'r' || key === 'R') { env.randomise(); window._ncvSyncPanel && _ncvSyncPanel(); }
+  else if (key === 'n' || key === 'N') { sendRemote('journey_now'); }
+  else if (key === 't' || key === 'T') { sendRemote('set_env_values', { showClock: !env.showClock }); }
+  else if (key === 'm' || key === 'M') {
+    const order = ['off', 'auto', 'always'];
+    const next = order[(order.indexOf(String(env.showMap || 'auto')) + 1) % order.length];
+    sendRemote('set_env_values', { showMap: next });
+    if (next === 'auto') journeyMap.show();
+  }
+  else if (key === '+' || key === '=') { sendRemote('set_env_values', { brightness: Math.min(1, (Number(env.brightness) || 1) + 0.05) }); }
+  else if (key === '-' || key === '_') { sendRemote('set_env_values', { brightness: Math.max(0.05, (Number(env.brightness) || 1) - 0.05) }); }
   else if (key === 'c' || key === 'C') { window._ncvTogglePanel  && _ncvTogglePanel(); }
   else if (key === 'd' || key === 'D') { window._ncvToggleDebug  && _ncvToggleDebug(); }
   else if (key === 'l' || key === 'L') { window.open('remote.html', '_blank'); }
@@ -798,34 +897,329 @@ function keyPressed() {
   }
 }
 
+// ----------------------------------------------------------
+// Journey HUD — clock card + globe, drawn for a viewer lying on the floor.
+//
+// There is no natural "up" on a ceiling, so overlays are drawn in a frame
+// rotated by env.overlayRotationDeg (set it to whichever wall people's feet
+// point at) and, with env.overlayDual, a second copy 180° around so two rows
+// of people can both read it. Everything is placed on the inscribed circle so
+// it stays on-screen at any rotation and aspect ratio.
+// ----------------------------------------------------------
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function journeyDisplayDate() {
+  // Local solar time of the scene. liveDateISO already carries the longitude
+  // offset, so read it as UTC fields.
+  const d = new Date(env.liveDateISO || Date.now());
+  if (!Number.isFinite(d.getTime())) return null;
+  const y = d.getUTCFullYear();
+  const tod = Number(env.timeOfDay) || 0;
+  const hh = Math.floor(tod), mm = Math.floor((tod - hh) * 60);
+  const yearLabel = y > 0 ? String(y) : `${1 - y} BC`;
+  const weekday = y >= 1583 ? WEEKDAYS[d.getUTCDay()] + ' ' : '';
+  return {
+    time: `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
+    date: `${weekday}${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${yearLabel}`,
+    year: y,
+  };
+}
+
+function journeyRateLabel() {
+  if (!env.journeyActive) return '';
+  const r = Number(env.journeyRate) || 0;
+  if (r === 0) return 'paused';
+  const a = Math.abs(r);
+  let unit;
+  if (a < 30) unit = a === 1 ? 'real time' : `${a}x`;
+  else if (a < 1800) unit = `${Math.round(a / 60)} min / s`;
+  else if (a < 43200) unit = `${(a / 3600).toFixed(a % 3600 ? 1 : 0)} hr / s`;
+  else unit = `${(a / 86400).toFixed(a % 86400 ? 1 : 0)} day / s`;
+  return (r < 0 ? '<<  ' : '>>  ') + unit;
+}
+
+function withOverlayOrientation(fn) {
+  const rot = radians(Number(env.overlayRotationDeg) || 0);
+  const rots = env.overlayDual ? [rot, rot + PI] : [rot];
+  const R = min(width, height) * 0.5;
+  for (const r of rots) {
+    push();
+    translate(width * 0.5, height * 0.5);
+    rotate(r);
+    fn(R);
+    pop();
+  }
+}
+
+function drawJourneyHud() {
+  const mapAlpha = journeyMap.alpha();
+  const showClock = !!env.showClock;
+  if (!showClock && mapAlpha <= 0.01) return;
+  const info = showClock ? journeyDisplayDate() : null;
+  withOverlayOrientation((R) => {
+    if (info) drawClockCard(R, info);
+    if (mapAlpha > 0.01) journeyMap.draw(R, mapAlpha, !!info);
+  });
+}
+
+function drawClockCard(R, info) {
+  const u = R / 540; // 1 at 1080p-ish
+  const cardW = R * 0.86, cardH = R * 0.30;
+  const cx = 0, cy = R * 0.80;
+  const dim = constrain(Number(env.brightness) || 1, 0.05, 1);
+  const sub = env.journeyLabel || env.liveLocationName || '';
+  const rate = journeyRateLabel();
+  const src = env.journeyWeatherSource;
+  const real = env.journeyActive && (src === 'archive' || src === 'forecast') ? '  ·  real weather' : '';
+
+  push();
+  rectMode(CENTER);
+  noStroke();
+  fill(4, 10, 16, 150);
+  rect(cx, cy, cardW, cardH, 18 * u);
+  textAlign(CENTER, CENTER);
+  textFont('monospace');
+  // Text gets brighter as the room dims so it stays legible after the dimmer.
+  const ink = 235 / Math.max(0.35, Math.pow(dim, 0.5));
+  fill(Math.min(255, ink), Math.min(255, ink * 1.02), 255, 235);
+  textStyle(BOLD);
+  textSize(R * 0.115);
+  text(info.time, cx, cy - cardH * 0.24);
+  textStyle(NORMAL);
+  textSize(R * 0.040);
+  text(info.date, cx, cy + cardH * 0.08);
+  fill(180, 205, 225, 220);
+  textSize(R * 0.032);
+  const line3 = sub.length > 46 ? sub.slice(0, 44) + '…' : sub;
+  text(line3, cx, cy + cardH * 0.28);
+  if (rate) {
+    fill(130, 215, 170, 220);
+    textSize(R * 0.028);
+    text(rate + real, cx, cy + cardH * 0.43);
+  }
+  pop();
+}
+
+// ---- globe ----
+const journeyMap = {
+  from: null,          // {lat, lon} previous location during a transition
+  startMs: 0,
+  tweenMs: 3200,
+  shownAt: -1e9,
+  autoHoldMs: 15000,
+  gfx: null,
+  gfxKey: '',
+  onLocationChange(prevLat, prevLon) {
+    if (Number.isFinite(prevLat) && Number.isFinite(prevLon)) this.from = { lat: prevLat, lon: prevLon };
+    else this.from = null;
+    this.startMs = millis();
+    this.show();
+  },
+  show() { this.shownAt = millis(); },
+  alpha() {
+    const mode = String(env.showMap || 'auto');
+    if (mode === 'off') return 0;
+    if (mode === 'always') return 1;
+    const t = millis() - this.shownAt;
+    if (t < 0 || t > this.autoHoldMs) return 0;
+    if (t < 600) return t / 600;
+    if (t > this.autoHoldMs - 1500) return (this.autoHoldMs - t) / 1500;
+    return 1;
+  },
+  // Great-circle interpolation of the view centre.
+  center() {
+    const lat1 = Number(env.liveLocationLat) || 0, lon1 = Number(env.liveLocationLon) || 0;
+    if (!this.from) return { lat: lat1, lon: lon1, k: 1 };
+    const k = constrain((millis() - this.startMs) / this.tweenMs, 0, 1);
+    const e = k * k * (3 - 2 * k);
+    if (e >= 1) { this.from = null; return { lat: lat1, lon: lon1, k: 1 }; }
+    const p = slerpLatLon(this.from.lat, this.from.lon, lat1, lon1, e);
+    return { lat: p.lat, lon: p.lon, k: e };
+  },
+  draw(R, alpha, besideCard) {
+    const r = R * 0.17;
+    const cx = besideCard ? -R * 0.66 : 0;
+    const cy = besideCard ? R * 0.80 : R * 0.80;
+    const c = this.center();
+    const key = `${c.lat.toFixed(2)}|${c.lon.toFixed(2)}|${Math.round(r)}`;
+    if (!this.gfx || this.gfx.width !== Math.ceil(r * 2 + 8)) {
+      if (this.gfx) this.gfx.remove();
+      this.gfx = createGraphics(Math.ceil(r * 2 + 8), Math.ceil(r * 2 + 8));
+      this.gfx.pixelDensity(1);
+      this.gfxKey = '';
+    }
+    if (key !== this.gfxKey) {
+      this.gfxKey = key;
+      renderGlobe(this.gfx, r, c.lat, c.lon);
+    }
+    push();
+    imageMode(CENTER);
+    tint(255, 255 * alpha);
+    image(this.gfx, cx, cy);
+    noTint();
+    // Markers + travel arc on top (cheap; drawn every frame).
+    translate(cx, cy);
+    const lat1 = Number(env.liveLocationLat) || 0, lon1 = Number(env.liveLocationLon) || 0;
+    const here = orthoProject(lat1, lon1, c.lat, c.lon);
+    if (this.from && c.k < 1) {
+      stroke(255, 225, 140, 200 * alpha);
+      strokeWeight(max(1, r * 0.018));
+      noFill();
+      beginShape();
+      const N = 40;
+      for (let i = 0; i <= N; i++) {
+        const q = slerpLatLon(this.from.lat, this.from.lon, lat1, lon1, (i / N) * c.k);
+        const pp = orthoProject(q.lat, q.lon, c.lat, c.lon);
+        if (pp.z > -0.02) vertex(pp.x * r, pp.y * r);
+      }
+      endShape();
+      const fromP = orthoProject(this.from.lat, this.from.lon, c.lat, c.lon);
+      if (fromP.z > 0) {
+        noStroke();
+        fill(255, 225, 140, 160 * alpha);
+        circle(fromP.x * r, fromP.y * r, r * 0.06);
+      }
+    }
+    if (here.z > 0) {
+      const pulse = 1 + 0.25 * sin(window._ncvAnimT * 0.06);
+      noFill();
+      stroke(255, 120, 90, 170 * alpha);
+      strokeWeight(max(1, r * 0.02));
+      circle(here.x * r, here.y * r, r * 0.16 * pulse);
+      noStroke();
+      fill(255, 120, 90, 255 * alpha);
+      circle(here.x * r, here.y * r, r * 0.07);
+    }
+    pop();
+  },
+};
+
+function slerpLatLon(lat1, lon1, lat2, lon2, t) {
+  const a1 = radians(lat1), b1 = radians(lon1), a2 = radians(lat2), b2 = radians(lon2);
+  const p = [cos(a1) * cos(b1), cos(a1) * sin(b1), sin(a1)];
+  const q = [cos(a2) * cos(b2), cos(a2) * sin(b2), sin(a2)];
+  let d = constrain(p[0] * q[0] + p[1] * q[1] + p[2] * q[2], -1, 1);
+  const om = acos(d);
+  let v;
+  if (om < 1e-6) v = q;
+  else {
+    const s = sin(om);
+    const w1 = sin((1 - t) * om) / s, w2 = sin(t * om) / s;
+    v = [p[0] * w1 + q[0] * w2, p[1] * w1 + q[1] * w2, p[2] * w1 + q[2] * w2];
+  }
+  return { lat: degrees(asin(constrain(v[2], -1, 1))), lon: degrees(atan2(v[1], v[0])) };
+}
+
+// Orthographic projection centred on (lat0, lon0). Returns unit-disc x,y (y down)
+// and z (>0 = facing us).
+function orthoProject(lat, lon, lat0, lon0) {
+  const la = radians(lat), lo = radians(lon - lon0), la0 = radians(lat0);
+  const x = cos(la) * sin(lo);
+  const y = cos(la0) * sin(la) - sin(la0) * cos(la) * cos(lo);
+  const z = sin(la0) * sin(la) + cos(la0) * cos(la) * cos(lo);
+  return { x, y: -y, z };
+}
+
+function renderGlobe(g, r, lat0, lon0) {
+  const w = g.width, h = g.height;
+  const cx = w * 0.5, cy = h * 0.5;
+  g.clear();
+  g.push();
+  g.translate(cx, cy);
+  // Ocean disc with a soft limb.
+  g.noStroke();
+  g.fill(12, 34, 58, 235);
+  g.circle(0, 0, r * 2);
+  // Graticule.
+  g.noFill();
+  g.stroke(120, 160, 200, 45);
+  g.strokeWeight(1);
+  for (let la = -60; la <= 60; la += 30) drawGeoLine(g, r, lat0, lon0, (t) => ({ lat: la, lon: -180 + 360 * t }), 72);
+  for (let lo = -180; lo < 180; lo += 30) drawGeoLine(g, r, lat0, lon0, (t) => ({ lat: -90 + 180 * t, lon: lo }), 36);
+  // Land: fill + outline. Back-facing points are pushed to the limb so partly
+  // hidden polygons still close sensibly.
+  const rings = window.NCV_WORLD_LAND || [];
+  g.stroke(150, 205, 170, 210);
+  g.strokeWeight(max(1, r * 0.012));
+  g.fill(44, 96, 70, 235);
+  for (const ring of rings) {
+    let any = false;
+    for (const [lon, lat] of ring) { if (orthoProject(lat, lon, lat0, lon0).z > 0) { any = true; break; } }
+    if (!any) continue;
+    g.beginShape();
+    for (const [lon, lat] of ring) {
+      const p = orthoProject(lat, lon, lat0, lon0);
+      let x = p.x, y = p.y;
+      if (p.z <= 0) { const m = Math.hypot(x, y) || 1; x /= m; y /= m; }
+      g.vertex(x * r, y * r);
+    }
+    g.endShape(CLOSE);
+  }
+  // Limb.
+  g.noFill();
+  g.stroke(180, 210, 240, 150);
+  g.strokeWeight(max(1, r * 0.02));
+  g.circle(0, 0, r * 2);
+  g.pop();
+}
+
+function drawGeoLine(g, r, lat0, lon0, fn, n) {
+  let open = false;
+  for (let i = 0; i <= n; i++) {
+    const q = fn(i / n);
+    const p = orthoProject(q.lat, q.lon, lat0, lon0);
+    if (p.z > 0.01) {
+      if (!open) { g.beginShape(); open = true; }
+      g.vertex(p.x * r, p.y * r);
+    } else if (open) { g.endShape(); open = false; }
+  }
+  if (open) g.endShape();
+}
+
+function drawBrightnessDimmer() {
+  const b = constrain(Number(env.brightness) || 1, 0.05, 1);
+  if (b >= 0.995) return;
+  push();
+  noStroke();
+  fill(0, 0, 0, Math.round((1 - b) * 255));
+  rect(0, 0, width, height);
+  pop();
+}
+
 
 // ----------------------------------------------------------
 // skyColor
 // ----------------------------------------------------------
+// Sky colour is keyed on the sun's altitude, not the clock, so a polar
+// summer midnight stays golden and a polar winter noon is a deep blue dusk.
 function skyColor() {
-  const t = env.timeOfDay;
+  const alt = NCV_SKY.phase().alt;
   const stops = [
-    {h:  0, r:  5, g:   8, b:  30},
-    {h:  4, r:  5, g:   8, b:  30},
-    {h:  5, r: 30, g:  25, b:  60},
-    {h:  6, r: 90, g:  60, b:  80},
-    {h:  7, r:230, g: 130, b:  70},
-    {h:  8, r:120, g: 170, b: 230},
-    {h: 12, r: 85, g: 155, b: 235},
-    {h: 17, r:100, g: 165, b: 230},
-    {h: 19, r:220, g: 120, b:  60},
-    {h: 20, r:140, g:  70, b:  80},
-    {h: 21, r: 30, g:  20, b:  50},
-    {h: 24, r:  5, g:   8, b:  30},
+    {h: -18, r:  5, g:   8, b:  30},
+    {h: -12, r:  6, g:   9, b:  34},
+    {h:  -7, r: 22, g:  20, b:  56},
+    {h:  -3, r: 60, g:  42, b:  78},
+    {h:   0, r:150, g:  80, b:  72},
+    {h:   3, r:225, g: 128, b:  68},
+    {h:   7, r:190, g: 160, b: 150},
+    {h:  12, r:120, g: 170, b: 230},
+    {h:  30, r: 95, g: 160, b: 235},
+    {h:  90, r: 85, g: 155, b: 235},
   ];
 
   let baseColor = [5, 8, 30];
-  for (let i = 0; i < stops.length - 1; i++) {
-    const a = stops[i], b = stops[i + 1];
-    if (t >= a.h && t <= b.h) {
-      const p = (t - a.h) / (b.h - a.h);
-      baseColor = [lerp(a.r, b.r, p), lerp(a.g, b.g, p), lerp(a.b, b.b, p)];
-      break;
+  if (alt >= stops[stops.length - 1].h) {
+    const s = stops[stops.length - 1];
+    baseColor = [s.r, s.g, s.b];
+  } else {
+    for (let i = 0; i < stops.length - 1; i++) {
+      const a = stops[i], b = stops[i + 1];
+      if (alt >= a.h && alt <= b.h) {
+        const p = (alt - a.h) / (b.h - a.h);
+        baseColor = [lerp(a.r, b.r, p), lerp(a.g, b.g, p), lerp(a.b, b.b, p)];
+        break;
+      }
     }
   }
 
@@ -845,6 +1239,7 @@ function drawDebugHUD() {
   const rows = [
     ['EnvironmentManager', '',                           true ],
     ['timeOfDay',          _fmtTime(env.timeOfDay)           ],
+    ['sun altitude',       `${NCV_SKY.phase().alt.toFixed(1)}° ${NCV_SKY.phase().isNight ? 'night' : (NCV_SKY.phase().isTwilight ? 'twilight' : 'day')}`],
     ['windSpeed',          env.windSpeed.toFixed(3)           ],
     ['currentWeather',     env.currentWeather                 ],
     ['starBrightness',     env.starBrightness.toFixed(2)      ],

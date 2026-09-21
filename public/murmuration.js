@@ -278,7 +278,7 @@ class _MurmSwarm {
   draw(alpha) {
     const dc      = drawingContext;
     const sc      = this.distanceScale;
-    const isNight = env.timeOfDay < 6.5 || env.timeOfDay > 20.5;
+    const isNight = NCV_SKY.phase().isNight;
 
     // Colour: far swarms (sc < 1) are hazier/lighter; close swarms (sc > 1) are richer.
     const haze = Math.max(0, Math.min(12, Math.round((1 - sc) * 10)));
@@ -359,8 +359,7 @@ class MurmurationSystem {
 
   // Spawn one new swarm immediately — used by the "Trigger Flock" button.
   triggerFlock() {
-    const tod = env.timeOfDay;
-    const isNight = tod < 6.5 || tod > 20.5;
+    const isNight = NCV_SKY.phase().isNight;
     if (isNight || env.currentWeather === 'storm' || this.swarms.length > 0) return;
     const swarm = new _MurmSwarm();
     swarm.distanceScale = this._assignDistanceScale();
@@ -374,7 +373,7 @@ class MurmurationSystem {
     const blockForCloud = cloudCover >= 0.42;
     const clearOutForCloud = cloudCover >= 0.56;
     const isStruggling = !!window._ncvIsStruggling;
-    const isActive = tod >= 6.2 && tod <= 20.5 && env.currentWeather !== 'storm' && !blockForCloud && !isStruggling;
+    const isActive = NCV_SKY.phase().alt > -3 && env.currentWeather !== 'storm' && !blockForCloud && !isStruggling;
     const now      = millis();
 
     // One active swarm at a time.
@@ -476,8 +475,7 @@ class GooseMigrationSystem {
   }
 
   update() {
-    const tod = env.timeOfDay;
-    const isNight = tod < 6.4 || tod > 20.6;
+    const isNight = NCV_SKY.phase().isNight;
     const season = this._seasonKey();
     const supports = this._locationSupportsMigration();
     const storm = env.currentWeather === 'storm';
@@ -506,7 +504,7 @@ class GooseMigrationSystem {
 
   draw() {
     if (!this.formations.length) return;
-    const isNight = env.timeOfDay < 6.4 || env.timeOfDay > 20.6;
+    const isNight = NCV_SKY.phase().isNight;
     const baseA = isNight ? 120 : 165;
     push();
     noStroke();

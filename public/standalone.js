@@ -531,6 +531,13 @@ const environmentState = {
   performanceMode: 'auto',
   sleeping: false,
   lightningIntensity: 0.0, // 0.0 to 1.0 based on real-world data
+  // Room / presentation controls (mirrors server.js; journey mode is server-only).
+  brightness: 1.0,
+  overlayRotationDeg: 0,
+  overlayDual: false,
+  showClock: false,
+  showMap: 'auto',
+  sceneAudio: '',
 };
 
 let lastLiveFetchAt = 0;
@@ -616,6 +623,23 @@ function applyRemoteEnvPatch(data = {}) {
   setNumeric('soundBirds', 0, 1);
   setNumeric('soundCrickets', 0, 1);
   setNumeric('soundNightBirds', 0, 1);
+  setNumeric('brightness', 0.05, 1);
+  setNumeric('overlayRotationDeg', 0, 359, { round: true });
+  const setBool = (key) => {
+    if (data[key] === undefined) return;
+    const next = data[key] === true || data[key] === 1 || data[key] === '1' || data[key] === 'true';
+    if (environmentState[key] !== next) { environmentState[key] = next; changed = true; }
+  };
+  setBool('overlayDual');
+  setBool('showClock');
+  if (data.showMap !== undefined) {
+    const m = String(data.showMap).toLowerCase();
+    if (['off', 'auto', 'always'].includes(m) && environmentState.showMap !== m) { environmentState.showMap = m; changed = true; }
+  }
+  if (data.sceneAudio !== undefined) {
+    const a = String(data.sceneAudio || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 32);
+    if (environmentState.sceneAudio !== a) { environmentState.sceneAudio = a; changed = true; }
+  }
 
   if (weather && ['clear', 'rain', 'storm'].includes(weather) && environmentState.currentWeather !== weather) {
     environmentState.currentWeather = weather;

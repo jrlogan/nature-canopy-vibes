@@ -266,11 +266,7 @@ class Bird {
   }
 
   _daytimeAlpha() {
-    const t = env.timeOfDay;
-    if (t < 7  || t > 20) return 0;
-    if (t < 8)            return map(t,  7,  8, 0, 255);
-    if (t > 19)           return map(t, 19, 20, 255, 0);
-    return 255;
+    return 255 * NCV_SKY.phase().daylight;
   }
 }
 
@@ -407,11 +403,8 @@ class Bat {
   }
 
   draw() {
-    const t = env.timeOfDay;
-    let alpha = 0;
-    if (t < 5 || t > 21)             alpha = 220;
-    else if (t >= 5  && t <= 6)      alpha = map(t,  5,  6, 220, 0);
-    else if (t >= 20 && t <= 21)     alpha = map(t, 20, 21,   0, 220);
+    // Bats: out once the sun is well down.
+    const alpha = 220 * (1 - NCV_SKY.smooth(-9, -3, NCV_SKY.phase().alt));
     if (alpha <= 0) return;
 
     const flap = sin(this.flapPhase) * this.size * 0.5;
@@ -448,11 +441,11 @@ class CreatureFlock {
     const perched = this.birds.filter(b => b.state === 'PERCHED').length;
     const total   = this.birds.length;
     const activeFlock = total > 0;
-    const t = env.timeOfDay;
-    const isNight = t < 6.5 || t > 20.5;
-    const isSunset = t >= 17.4 && t <= 20.3;
-    const isDusk = t >= 18.0 && t <= 20.9;
-    const isDawn = t >= 4.5 && t <= 6.7;
+    const sky = NCV_SKY.phase();
+    const isNight = sky.isNight;
+    const isSunset = !sky.morning && sky.alt < 12 && sky.alt > -4;
+    const isDusk = !sky.morning && sky.alt < 8 && sky.alt > -8;
+    const isDawn = sky.morning && sky.alt < 4 && sky.alt > -12;
     const isStorm = env.currentWeather === 'storm';
     const cloudCover = constrain(env.cloudCover ?? 0.28, 0, 1);
     const blockFlocksForCloud = cloudCover >= 0.42;   // stop new arrivals before sky gets heavy
