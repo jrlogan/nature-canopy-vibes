@@ -59,7 +59,7 @@
     fill(255,193,104,210*opacity);ellipse(x,y+size*3,size*1.5,size*7);
     fill(255,249,229,255*opacity);circle(x,y,size*1.5);pop();
   }
-  window.NCV_CAPE={date:()=>active?new Date(epoch):null,observer:()=>active?viewing:null,stop,draw};
+  window.NCV_CAPE={date:()=>active?new Date(epoch):null,observer:()=>active?viewing:null,stop,draw,start:i=>start(Math.max(0,Math.min(2,Math.trunc(Number(i)||0))))};
   window.addEventListener('load',()=>{
     section=document.createElement('details');
     section.innerHTML='<summary>The Cape · three launch eras</summary><p>A silent sky replay from an approximate Titusville shoreline viewpoint: Apollo 11, Columbia’s first flight, then Artemis I.</p><p>Time flows at 120× toward each launch, slows for the countdown, then follows an illustrative ascent at 6×. The years between chapters are skipped.</p><p>Dates and pads are historical. Paths, glow and relative vehicle intensity are artistic—not telemetry. Trees and weather remain your configured environment.</p><div id="cape-choices"></div><p><button id="cape-pause" disabled>Pause replay</button> <button id="cape-stop">End replay</button></p><p id="cape-status" role="status">Choose a launch to begin; later chapters follow automatically.</p><a id="cape-source" target="_blank" rel="noopener">NASA mission source</a>';

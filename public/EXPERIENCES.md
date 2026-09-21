@@ -1,5 +1,18 @@
 # Sky modes
 
+The display is menu-free by default. Pair using its small Phone remote / QR
+button (or press Q); that button hides after a remote command. All experience
+selection controls are in remote.html. Telescope and record imagery can still
+be projected, but their controls stay on the phone. Explicit `?demo=1` retains
+local menus for a single-device demo. Browser autoplay rules may require a
+one-time click/tap on the display before remote audio playback will work.
+Playback failure is reported on the phone; the phone does not claim it started.
+
+Switching experience categories, starting another experience, or using scene /
+time commands cancels the previous Cape replay. Stop experience returns to
+Ambient and stops experience audio and projections. The independent shared
+time-flow clock remains controlled by its own Pause / Live time buttons.
+
 Ambient leaves the environment alone. Explore opens the existing explanatory
 cards and an illustrative telescope. Experiences offers explicitly started
 archive listening, a Voyager reflection, and a synthetic launch. Modes are local

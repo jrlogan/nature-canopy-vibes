@@ -1075,12 +1075,18 @@ io.on('connection', (socket) => {
   });
 
   // Mobile remote commands are normalized here and rebroadcast.
+  socket.on('sky:status', (data = {}) => {
+    io.emit('sky:status', { text: String(data.text || '').slice(0, 1000) });
+  });
   socket.on('remote:command', async (payload = {}) => {
     const command = typeof payload === 'string' ? payload : payload.command;
     const data = payload && typeof payload === 'object' ? (payload.data || {}) : {};
     if (!command) return;
 
     switch (command) {
+      case 'sky_experience':
+        if (!['ambient','explore','cape','cape_pause','apollo','apollo_pause','apollo_sky','voyager','launch','telescope','telescope_close','body','narration'].includes(data.action)) return;
+        break;
       case 'journey_start':
       case 'journey_set_rate':
         if (!Number.isFinite(Number(data.rate))) return;

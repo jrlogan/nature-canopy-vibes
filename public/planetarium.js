@@ -182,6 +182,7 @@
     heading = document.getElementById('tour-heading'); content = document.getElementById('tour-content'); narration = document.getElementById('tour-narration'); voiceSelect = document.getElementById('tour-voice');
     const toggle = () => { open = !open; panel.hidden = !open; button.setAttribute('aria-expanded', String(open)); if (!open) window.speechSynthesis?.cancel(); else { updateCard(); speak(); } };
     window.NCV_PLANETARIUM.setOpen = value => { if (open !== value) toggle(); };
+    window.NCV_PLANETARIUM.select = name => { if (Object.hasOwn(descriptions,name)) { selected=name; updateCard(); speak(); } };
     button.onclick = toggle; document.getElementById('tour-close').onclick = toggle;
     const steps = Object.keys(descriptions);
     function next(delta) { selected = steps[(steps.indexOf(selected) + delta + steps.length) % steps.length]; updateCard(); speak(); }

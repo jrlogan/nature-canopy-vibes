@@ -9,6 +9,7 @@
     if ($('launch-stop')) $('launch-stop').disabled = true;
   }
   function stop() {
+    if ($('record-projection')) $('record-projection').hidden = true;
     window.NCV_CAPE?.stop();
     audio?.pause(); stopLaunch(); window.speechSynthesis?.cancel();
     if (historical) historical.checked = false;
@@ -113,7 +114,7 @@
     // working day-five highlights, and explicitly avoid claiming synchronization.
     audio.addEventListener('error',()=>{$('audio-status').textContent='Archive audio could not load. Try the NASA source link below.';});
     audio.addEventListener('loadedmetadata',()=>{$('audio-status').textContent=`Original NASA archive · ${Math.round(audio.duration/60)} minutes. Silence and radio noise are part of the recording.`;});
-    audio.addEventListener('play',()=>{stopLaunch(); window.speechSynthesis?.cancel();});
+    audio.addEventListener('play',()=>{window.NCV_CAPE?.stop(); stopLaunch(); window.speechSynthesis?.cancel();});
     historical.onchange = () => { if (historical.checked) window.NCV_CAPE?.stop(); };
     const flow = document.createElement('details');
     flow.innerHTML = '<summary>Watch time flow</summary><p>Watch the Sun and stars move continuously. These controls also work from the QR remote.</p><div id="display-flow"></div><p id="display-flow-status" role="status"></p>';
@@ -136,6 +137,56 @@
     document.addEventListener('keydown',e=>{if(e.key==='Escape'){modes.hidden=true;launcher.setAttribute('aria-expanded','false');panel.hidden=true;telescopePanel.hidden=true;window.NCV_PLANETARIUM.setOpen(false);launcher.focus();}});
     document.addEventListener('visibilitychange',()=>{if(document.hidden)stopLaunch();});
     window.addEventListener('pagehide',stop);
+    const localMenus = new URLSearchParams(location.search).get('demo') === '1';
+    if (!localMenus) {
+      const clean=document.createElement('style');
+      clean.textContent='#sky-launcher,#sky-modes,#experiences-panel,#planetarium-panel,#demo-bar,#demo-caption,#ncv-panel{display:none!important} #telescope-view{top:50%;left:50%;right:auto;transform:translate(-50%,-50%);max-height:90dvh} #telescope-view button{display:none!important}';
+      document.head.append(clean);
+      const pair=document.createElement('button');pair.id='display-pair';pair.textContent='Phone remote · QR';
+      pair.style.cssText='position:fixed;right:12px;bottom:12px;z-index:10004;padding:10px;border-radius:10px;background:#07131fbb;color:#dce7ed;border:1px solid #8ebbd344';
+      pair.onclick=()=>showQRFallbackOverlay();document.body.append(pair);
+    }
+    const record=document.createElement('img');record.id='record-projection';record.hidden=true;
+    record.src='https://science.nasa.gov/wp-content/uploads/2024/03/voyager-record-cover-446eb9.jpg';
+    record.alt='Voyager Golden Record cover — NASA/JPL';
+    record.style.cssText='position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);max-width:75vw;max-height:80dvh;z-index:9500';
+    document.body.append(record);
+    let status='Ambient';
+    function report(text) {status=text;socket.emit('sky:status',{text});}
+    socket.on('remote:command',payload=>{
+      const command=payload?.command, data=payload?.data||{};
+      if($('display-pair')) $('display-pair').hidden=true;
+      if(command!=='sky_experience') {
+        if(command && !['toggle_compass','set_compass_offset','toggle_sky_labels','toggle_labels','toggle_constellations'].includes(command)) {setMode('ambient');report('Ambient · previous experience stopped');}
+        return;
+      }
+      const action=data.action;
+      if(['ambient','explore','cape','voyager','launch','body','telescope'].includes(action)) setMode(action==='ambient'?'ambient':action==='explore'||action==='body'||action==='telescope'?'explore':'experiences');
+      switch(action) {
+        case 'cape': window.NCV_CAPE.start(data.index);break;
+        case 'cape_pause': $('cape-pause').click();break;
+        case 'apollo':
+          { const keepDate=historical.checked;setMode('experiences');historical.checked=keepDate; }
+          audio.play().catch(()=>report('Audio blocked or unavailable. Tap the display once, then press Play again.'));break;
+        case 'apollo_pause': audio.pause();break;
+        case 'apollo_sky':
+          window.NCV_CAPE?.stop(); mode='experiences';historical.checked=!!data.value;break;
+        case 'voyager': record.hidden=false;break;
+        case 'launch': $('launch-sound').checked=!!data.sound;startLaunch();break;
+        case 'body': case 'explore': window.NCV_PLANETARIUM.select(data.body || 'Moon');break;
+        case 'telescope': window.NCV_PLANETARIUM.select(data.body || 'Moon');telescope();break;
+        case 'telescope_close': $('telescope-view').hidden=true;break;
+        case 'narration': narrationControl(!!data.value);break;
+      }
+      report(action==='ambient'?'Ambient · all experience playback stopped':'Selected: '+action.replaceAll('_',' '));
+    });
+    function narrationControl(value) {const check=$('tour-narration');check.checked=value;check.dispatchEvent(new Event('change'));}
+    setInterval(()=>socket.emit('sky:status',{text:window.NCV_CAPE?.date() ? $('cape-status').textContent : mode==='explore' ? $('tour-heading').textContent+': '+$('tour-content').textContent : status}),1500);
+    // Opening a different local experience also takes ownership of playback.
+    panel.addEventListener('toggle',e=>{if(e.target.tagName==='DETAILS' && e.target.open && e.target.parentElement===panel) {stop();}},true);
+    // Local location/mode edits (as well as remote commands) end local replays.
+    let previousScene='';
+    window.addEventListener('ncv:state',({detail})=>{const key=[detail.liveLocationLat,detail.liveLocationLon,detail.simulationMode].join('|');if(previousScene && key!==previousScene){setMode('ambient');report('Ambient · scene changed');}previousScene=key;});
     setMode('ambient');
   }
   window.NCV_EXPERIENCES={date,drawLaunch};

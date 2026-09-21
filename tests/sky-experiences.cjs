@@ -9,7 +9,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
     const page=await context.newPage(), errors=[];
     page.on('pageerror',e=>errors.push(e.message));
     const base=process.env.BASE_URL || 'http://localhost:3091';
-    await page.goto(base);
+    await page.goto(base+'/?demo=1');
     await page.waitForFunction(()=>window._ncvDidFirstSync && window.NCV_CAPE);
     const remote=await context.newPage();
     remote.on('pageerror',e=>errors.push(e.message));
